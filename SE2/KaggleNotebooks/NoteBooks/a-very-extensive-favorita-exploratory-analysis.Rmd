@@ -1,0 +1,433 @@
+---
+title: "Favorita Exploratory Analysis"
+author: "Troy Walters"
+date: "October 22, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = 'center')
+```
+
+# Table of Contents
+
+* [Introduction](#Intro)
+* [Libraries](#Libraries)
+* [Import Data](#Import)
+* [Data Overview](#Overview)
+* [Sales Overview](#soverview)
+* [Sales by Store](#Store)
+* [Sales by Geography](#Geo)
+* [Sales over Time](#Time)
+* [Analysis of Items](#Items)
+* [Transactions](#transactions)
+
+# Introduction {#Intro}
+
+In this competition we are given data on sales over time and by store for a large number of products sold by Corporacion Favorita across Ecuador. There are also a number of supplementary data files on transactions, oil prices (due to their significant impact on the national economy), store information, and holidays. Their is an enormous amount of data to process and explore here, so let's get started. 
+
+# Libraries {#Libraries}
+
+```{r libraries}
+
+library(data.table)
+library(tidyverse)
+library(lubridate)
+library(xts)
+library(leaflet)
+library(ggfortify)
+library(tidyquant)
+
+```
+
+# Import Data {#Import}
+
+The training data is almost 5.0 Gb in size on disk. Let's use data.table for fast reading and manipulation. 
+
+```{r import}
+
+dtrain <- fread('../input/train.csv', showProgress = FALSE)
+stores <- fread('../input/stores.csv')
+oil <- fread('../input/oil.csv')
+items <- fread('../input/items.csv')
+transactions <- fread('../input/transactions.csv')
+
+
+print(object.size(dtrain), units = 'Gb'); gc();
+
+```
+
+The training data is 3.7 Gb in RAM. The kaggle kernels make 16 Gb of RAM available, so it remains to be seen whether or not we will run into memory issues. Although the data are much smaller than the total RAM available, we may encounter issues in which we attempt to perform an operation in which R is unable to locate a contiguous section of RAM of the appropriate size. Nevertheless I am going to attempt this exploration using all of the data. 
+
+# Data Overview {#Overview}
+
+```{r glimpse_dtrain}
+
+glimpse(dtrain)
+
+```
+
+Despite its size, the training data only has a few columns. We've got an id, a date, store number, item number, the unit sales and an indicator of whether or not the item is on promotion. There are over 125 million rows, one for each date, store, item combination. 
+
+```{r, summary_dtrain}
+
+summary(dtrain)
+
+```
+
+The only column that has any missing data is the `onpromotion` column. As stated on the competition page, about 16% of this column is missing. 
+
+```{r summary_stores}
+
+summary(stores)
+
+```
+
+
+Before we get started with exploration, let's convert the `date` columns in `dtrain` and `oil` into a date class. 
+
+```{r to_date}
+
+dtrain[, date := as.Date(fast_strptime(date, format = "%Y-%m-%d"))]
+oil[, date := as.Date(fast_strptime(date, format = "%Y-%m-%d"))]
+
+range(dtrain$date); gc();
+
+```
+
+The training data run from January 1, 2013, to August 15 of this year. 
+
+# Sales Overview {#soverview}
+
+Let's look at how the daily total unit sales are distributed for all stores. First, we'll look at only those sales that are positive for a given item on a given day. 
+
+```{r}
+
+dtrain[, .(total_sales = sum(unit_sales)/1000), by = date] %>%
+    ggplot(aes(x = total_sales)) + 
+    geom_histogram(fill = 'steelblue', bins = 50) + 
+    labs(x = 'Daily unit sales (000s)', title = 'Distribution of Daily Unit Sales - All Stores')
+
+```
+
+The distribution of daily unit sales appears to be bimodal with peaks near 300,000 and 600,000.
+
+
+```{r, eval = FALSE}
+
+dtrain[, .(total_sales = sum(unit_sales)/1000), by = date] %>%
+    ggplot(aes(x = total_sales)) + 
+    geom_histogram() + 
+    facet_wrap(~onpromotion)
+
+```
+
+# Sales by Store {#Store}
+
+Next, let's take a look at total unit sales by store:
+
+```{r}
+
+dtrain[, .(total_sales = sum(unit_sales)), by = store_nbr] %>%
+    ggplot(aes(x = reorder(as.factor(store_nbr), total_sales), y = total_sales)) +
+    geom_bar(stat = 'identity', fill = 'steelblue') + 
+    labs(y = 'Total unit sales', x = 'Store number', title = 'Total Sales by Store') +
+    coord_flip()
+
+```
+
+And total sales by store type:
+
+```{r}
+
+# Set the keys on each data table for fast joins
+setkey(dtrain, store_nbr)
+setkey(stores, store_nbr)
+
+dtrain[stores][, .(total_sales = sum(unit_sales)), by = type] %>%
+    ggplot(aes(x = reorder(type, -total_sales), y = total_sales)) +
+    geom_bar(stat = 'identity', fill = 'steelblue') + 
+    labs(x = '', y = 'Total unit sales', title = 'Total Unit Sales by Store Type')
+
+```
+
+And by cluster:
+ 
+```{r}
+
+dtrain[stores][, .(total_sales = sum(unit_sales)), by = cluster] %>%
+    ggplot(aes(x = reorder(cluster, -total_sales), y = total_sales)) +
+    geom_bar(stat = 'identity', fill = 'steelblue') + 
+    labs(x = '', y = 'Total unit sales', title = 'Total Unit Sales by Store Cluster')
+
+```
+
+
+# Sales by Geography {#Geography}
+
+Now let's look at sales by geography. Before we do, let's get our bearings and take a look at a map of Ecuador and its states and cities. We can create a quick zoomable map using `leaflet`.  Here I've plotted each city in Ecuador that has a Favorita store. The size of the circle is indicative of the number of Favorita stores in that city. 
+
+```{r leaflet}
+
+lat <-  c(-0.1807, -0.2389, 0.0367141, -0.9316, -1.6636, 0.3516889, -1.5905, -1.4924, -1.2543, -2.1710, -2.227827,
+          -1.8622, -1.8019, -1.0225, -2.6285, -2.2347644, -2.9001, -4.0079, -3.2581,  0.98333, -0.9677, -0.2714) 
+
+lng <- c(-78.4678, -79.1774, -78.1507, -78.6058, -78.6546, -78.1222, -78.9995, -78.0024, -78.6229, -79.9224, -80.9585,   
+         -79.9777, -79.5346, -79.4604, -80.3896, -80.9002, -79.0059, -79.2113, -79.9554, -79.65, -80.7089, -79.4648)
+
+stores[, .(num_stores = .N), by = city][, c('lat', 'lng') := list(lat, lng)] %>%
+    leaflet() %>% 
+    setView(lat = -0.900653, lng = -78.467834, zoom = 7) %>% 
+    addTiles() %>%
+    addCircleMarkers(
+        ~lng,
+        ~lat,
+        radius = ~ num_stores,
+        label = ~ city
+    )
+
+```
+
+Now let's join the training data with the stores data and examine unit sales by geography. First we'll plot total sales by state.
+
+```{r}
+
+dtrain[stores][, .(total_sales = sum(unit_sales)), by = state] %>%
+    ggplot(aes(x = reorder(state, total_sales), y = total_sales)) +
+    geom_bar(stat = 'identity', fill = 'steelblue') + 
+    labs(x = '', y = 'Total unit sales', title = 'Total Unit Sales by State') + 
+    coord_flip()
+
+```
+
+And then by geography:
+
+```{r sales_city}
+
+dtrain[stores][, .(total_sales = sum(unit_sales)), by = city] %>%
+    ggplot(aes(x = reorder(city, total_sales), y = total_sales)) +
+    geom_bar(stat = 'identity', fill = 'steelblue') + 
+    labs(x = '', y = 'Total unit sales', title = 'Total Unit Sales by City') + 
+    coord_flip()
+
+```
+
+Quito, the capital and largest city, has more unit sales than any other city by a very large margin. 
+
+# Sales over Time {#Time}
+
+Let's take a look at the total unit sales over time. Because plotting the daily sales will be rather noisy, we'll also plot weekly and monthly sales to get a better look at the underlying trends. 
+
+### {.tabset}
+
+#### Daily Sales
+
+```{r sales_daily}
+
+as.xts.data.table(dtrain[, .(total_sales = sum(unit_sales)), by = date][, .(date, total_sales)]) %>%
+    autoplot() +
+    labs(x = '', y = 'Total Unit Sales', 'Daily Unit Sales')
+
+```
+
+#### Weekly Sales
+
+```{r sales_weekly}
+
+as.xts.data.table(dtrain[, .(total_sales = sum(unit_sales)), by = date][, .(date, total_sales)]) %>%
+    apply.weekly(sum) %>% 
+    autoplot() +
+    labs(x = '', y = 'Weekly Unit Sales', title = 'Weekly Unit Sales')
+
+```
+
+#### Monthly Sales
+
+```{r sales_monthly}
+
+as.xts.data.table(dtrain[, .(total_sales = sum(unit_sales)), by = date][, .(date, total_sales)]) %>%
+    apply.monthly(sum) %>% 
+    autoplot() +
+    labs(x = '', y = 'Total Unit Sales', title = 'Monthly Unit Sales')
+
+```
+
+###
+
+
+Now let's look at the same data, this time faceted by state. 
+
+```{r sales_state_plot}
+
+dtrain[stores][, .(total_sales = sum(unit_sales)/1000), by = c('date', 'state')] %>%
+    ggplot(aes(x = date, y = total_sales, color = state)) + 
+    geom_line() + 
+    facet_wrap(~state, ncol = 4, scale = "free_y") + 
+    labs(x = '', y = 'Total unit sales (000s)', title = 'Sales by State') + 
+    theme(legend.position = "none", axis.text.x = element_text(angle=45, hjust=1))
+    
+```
+
+All stores appear to have upward trending sales. We see that the state of Pastaza does not have any sales until around the beginning of 2016, indicating that a store was only built there at that time. 
+
+We are told in the Overview section of the competition page that the price of oil is included because Ecuador's economy is highly dependent on oil exports. Let's take a look at the oil price data. 
+
+```{r oil_price}
+
+as.xts(oil) %>%
+    autoplot() +
+    labs(x = '', y = 'Oil Price $ per Barrel\nWest Texas Intermediate')
+
+```
+
+We see that oil prices suffered a collapse towards the end of 2014 and have not recovered. In fact despite some volatility, oil prices are at the same level as they were in the beginning of 2015. As a result of this we may see a significant shift in store sales around late 2014. Looking at the unit sales data, this is not readily apparent. Although sales do appear to drop off in the early part of 2015, in late 2014 they are rising. 
+
+Let's look closer. We'll first collapse the daily oil price and unit sales data to monthly. Then we calculate the monthly growth rates and check if there is a correlation between the two. 
+
+```{r}
+
+setkey(oil, date)
+
+# get correlation of monthly change in sales and oil price
+merge.xts(
+    apply.monthly(as.xts(dtrain[, .(total_sales = sum(unit_sales)), by = date]), sum, na.rm = TRUE),
+    apply.monthly(as.xts(oil), mean, na.rm = TRUE),
+    join = 'left') %>%
+    na.approx() %>%
+    apply(MARGIN = 2, function(v) v/lag(v, 1) - 1) %>%
+    as.xts() %>%
+    cor(use = 'complete.obs')
+
+# plot monthly change in sales and oil price
+merge.xts(
+    apply.monthly(as.xts(dtrain[, .(total_sales = sum(unit_sales)), by = date]), sum, na.rm = TRUE),
+    apply.monthly(as.xts(oil), mean, na.rm = TRUE),
+    join = 'left') %>%
+    na.approx() %>%
+    apply(MARGIN = 2, function(v) v/lag(v, 1) - 1) %>%
+    as.xts() %>% 
+    autoplot(facet = FALSE) + 
+    labs(title = 'Oil price and total sales % change')
+
+```
+
+As we can see by the plot and the calculated correlations, there does not appear to be any relationship between the monthly change in oil prices and the total unit sales at Favorita stores. This is surprising given Ecuador's reliance on oil exports for its economy. We should be careful of this conclusion for two reasons. First, we only have a few years of data and this may not be enough to establish a correlation. Second, it may take time for changes in oil prices to impact consumer purchases, so a correlation may show up between time lags. I hope to examine this further.  
+
+
+# Analysis of Items {#Items}
+
+Let's take a look at the items for sale in Corporacion Favorita stores.
+
+```{r}
+
+summary(items)
+
+```
+
+There are 4,100 items currently offered at Favorita stores. 
+
+```{r}
+
+items[, .N, by = perishable]
+```
+
+Of the 4,100 items, 3,114 are non-perishable and 986 are perishable. The competition pages states that perishable items are weigthed more heavily than non-perishables. Shorter shelf lives mean a smaller margin of error when it comes to forecasting sales. 
+
+Now let's look at sales by item family. 
+
+```{r}
+
+setkey(dtrain, item_nbr)
+setkey(items, item_nbr)
+
+dtrain[, .(t = sum(unit_sales)), by = item_nbr][items][, .(total_sales = sum(t, na.rm=T)), by = family] %>%
+    ggplot(aes(x = reorder(family, total_sales), y = total_sales)) + 
+    geom_point(color = 'steelblue') + 
+    coord_flip() + 
+    labs(x = '', y = 'Total unit sales', title = 'Unit Sales by Item Family')
+
+```
+
+Not surprisingly, grocery and beverages are the highest selling product families. Produce, cleaning, and dairy are third, fourth, and fifth. 
+
+Now let's plot the total unit sales of each product family over time.
+
+```{r, fig.height = 23, fig.width = 30}
+
+setkey(dtrain, item_nbr)
+setkey(items, item_nbr)
+
+dtrain[items][, .(total_sales = sum(unit_sales)/1000), by = c('date', 'family')] %>%
+    ggplot(aes(x = date, y = total_sales, color = family)) + 
+    geom_line() + 
+    facet_wrap(~family, ncol = 4, scale = "free_y") + 
+    labs(x = '', y = 'Total unit sales (000s)', title = 'Sales by Item Family') + 
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle=45, hjust=1),
+          strip.text.x = element_text(size = 10))
+    
+
+```
+
+# Transactions {#transactions}
+
+### {.tabset}
+
+#### Daily Transactions
+
+For this competition we are also provided with transactions.csv, which is a count of transactions per store per day. As I understand it, one transaction would be one customer buying 1 or more products - basically one customer going through the cashier. Let's first see what these look like over time. Again I plot the daily transactions, but also weekly and monthly so we can see the underlying trend better. 
+
+```{r}
+
+transactions[, date := as.Date(date)]
+
+transactions[, .(total_transactions = sum(transactions)/1000), by = date] %>%
+    as.xts() %>%
+    autoplot() +
+    labs(y = 'Transactions (000s)', title = 'Daily Transactions')
+
+```
+
+#### Weekly Transactions
+
+```{r}
+
+transactions[, .(total_transactions = sum(transactions)/1000), by = date] %>%
+    as.xts() %>%
+    apply.weekly(FUN = sum) %>%
+    autoplot() +
+    labs(y = 'Transactions (000s)', title = 'Weekly Transactions')
+
+```
+
+
+#### Monthly Transactions
+
+```{r}
+
+transactions[, .(total_transactions = sum(transactions)/1000), by = date] %>%
+    as.xts() %>%
+    apply.monthly(FUN = sum) %>%
+    autoplot() +
+    labs(y = 'Transactions (000s)', title = 'Monthly Transactions')
+
+```
+
+###
+
+It would be interesting to examine the ratio of sales and transactions over time as well. This indicates the number of items purchased per transaction.
+
+```{r}
+
+dtrain[, .(total_sales = sum(unit_sales)), by = date][transactions[, .(transactions = sum(transactions)), by = date], on = c('date')][, .(date, unit_trans = total_sales/transactions)] %>%
+    as.xts() %>%
+    autoplot() +
+    labs(title = 'Units per Transaction')
+
+
+```
+
+
+
+
+More to come...

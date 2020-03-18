@@ -1,0 +1,365 @@
+---
+title: "Feature Engineering and Visualization"
+output:
+  html_document:
+    toc: true
+    theme: cosmo
+---
+
+Hi everybody,
+
+in this notebook, I would like to share with you some approaches for Feature Engineering and Visualization. 
+
+## Data Preparation
+
+To apply every transformation on both the training and the test set, I 
+separate the id and target columns and combine the feature columns. 
+
+```{r, message=FALSE}
+library(tidyverse)
+
+train <- read_csv("../input/train.csv")
+test <- read_csv("../input/test.csv")
+
+# isolate id and target variables
+train_id <- data.frame(ID=as.character(train$ID))
+train_labels <- data.frame(y=train$y)
+test_id <- data.frame(ID=as.character(test$ID))
+train$ID <- NULL
+train$y <- NULL
+test$ID <- NULL
+
+# combine features from train and test set 
+df_all <- rbind(train, test)
+
+# split groups of categorical and binary features
+categorical_vars = paste0("X", c(0,1,2,3,4,5,6,8))
+categorical_df <- df_all %>% select(one_of(categorical_vars))
+binary_df <- df_all %>% select(-one_of(categorical_vars))
+```
+
+Before applying any of the transformations, let's take a look at the raw features.
+
+```{r message=FALSE, echo=FALSE}
+library(tabplot)
+
+# compare id and target
+tableplot(cbind(train_id, train_labels))
+
+# explore the categorical features
+tableplot(categorical_df)
+
+# explore some of the binary features
+tableplot(data.frame(apply(binary_df, 2, as.character)[, c(2, 3, 5, 10, 11)]), pals=list("Set2"))
+```
+
+We can see, that there are lots of binary features and some categorical which we 
+are able transform into binary features via One-Hot encoding. 
+
+## Feature Engineering 
+
+Now, let's apply some Feature Engineering techniques in order to compute some new 
+features which are possibly better predictors. Every transformed column will be 
+appended to the existing dataframe so that we don't lose any information. 
+
+### One-Hot Encoding 
+
+The first technique which I want to apply is One-Hot encoding of the categorical 
+variables. Since we don't know if there exists an implicit ordering of the 
+categorical features, it is a reasonable way to create binary dummy variables. 
+
+```{r, message=FALSE}
+library(caret)
+
+# perform one-hot encoding 
+dmy <- dummyVars(~., data = categorical_df)
+ohe_features <- data.frame(predict(dmy, newdata = categorical_df))
+
+df_all <- cbind(df_all, ohe_features)
+binary_df <- cbind(binary_df, ohe_features)
+
+binary_df_train <- binary_df[1:nrow(train), ]
+binary_df_test <- binary_df[(nrow(train)+1):nrow(binary_df),]
+
+# visualize one-hot encoded features 
+image(as.matrix(ohe_features), col=c("white", "black"))
+n_levels <- apply(categorical_df, 2, function(x){length(unique(x))}) 
+n_levels <- n_levels/sum(n_levels)
+abline(h=cumsum(n_levels), col="red")
+text(0.05, cumsum(n_levels)-.025, names(n_levels), col="red")
+abline(v=0.5, col="darkgreen")
+text(0.22, 0.025, "Train", col="darkgreen")
+text(0.72, 0.025, "Test", col="darkgreen")
+```
+
+In the pixel map above, we can see the one-hot encoded dummy variables. Each row
+represents a binary dummy variable and each column represents an observation. 
+The red lines separate dummy variables of different categorical variables. 
+
+In this plot, one thing that is really outstanding is the pattern in X5. It could 
+be an indicator that the observations were not randomly selected. Maybe X5 was a 
+test parameter which was hold constant for several consecutive runs of the test. 
+That would suggest a temporal ordering of the observations. 
+
+### Hierarchical Clustering
+
+In the next step, I would like to cluster the binary variables and use 
+cluster indices of different clusterings as new features. To measure distance 
+between binary vectors, I use Jaccard's distance. 
+
+```{r message=FALSE}
+library(proxy)
+
+# compute distance matrix  
+jdist <- proxy::dist(binary_df, method = "Jaccard")
+
+# perform hierarchical clustering
+hc <- hclust(jdist)
+
+# get all clusterings with 2 up to max_k clusters
+max_k <- 50
+clusters <- data.frame(sapply(2:max_k, function(k){ cutree(hc,k) }))
+colnames(clusters) <- paste0("hc_group_", 2:max_k)
+
+# add lines for each cut in the dendrogram 
+plot(hc, hang = -1, labels = FALSE, xlab = "", ann=FALSE)
+cuts <- sort(hc$height, decreasing = TRUE)[2:max_k]
+abline(h=cuts, col=alpha("red",0.3))
+```
+
+The red lines show the cuts we did by setting the number max_k of the maximum
+number of clusters. Each cut results in a clustering with the appropriate number
+of clusters (the intersections in the dendrogram). For each clustering, we add 
+the cluster indices of the observations to our feature set.
+
+*If you want to read more about hierarchical clustering, please check out my latest kernel [Analysis of clusters and outliers](https://www.kaggle.com/msp48731/analysis-of-clusters-and-outliers), where I described the approach in much more details and interpreted the results.*
+
+### Principal Component Analysis (PCA) 
+
+Next, I would like to perform a PCA on the binary features (including one-hot 
+encoded). Notice that unlike in the previous vesions of this kernel 
+I retain all of the principal components. 
+
+```{r}
+# perform pca
+res_pca <- prcomp(binary_df_train)
+pca_features <- predict(res_pca, newdata = binary_df)
+
+# proportion of explained variance 
+importance_pca <- summary(res_pca)$importance
+barplot(sort(importance_pca[2, importance_pca[2, ] > 0.005], decreasing = FALSE), horiz = TRUE, xlim=c(0,0.14), 
+        las=1, cex.names=0.6, main="Explained Variance by Principal Component", xlab="Proportion of explained variance")
+```
+
+Next, let's look at the coefficients of the principal components
+
+```{r}
+# visualize the impact of the original variables on principal components
+theta <- seq(0, 2*pi, length.out = 100)
+circle <- data.frame(x = cos(theta)/4, y = sin(theta)/4)
+
+ggplot(circle,aes(x,y)) + geom_path() + 
+  geom_text(data=data.frame(res_pca$rotation, .names = row.names(res_pca$rotation)), 
+              mapping=aes(x = PC1, y = PC2, label = .names, colour = .names)) +
+  coord_fixed(ratio=1) + labs(x = "PC1", y = "PC2") + theme(legend.position="none")
+
+ggplot(circle,aes(x,y)) + geom_path() + 
+  geom_text(data=data.frame(res_pca$rotation, .names = row.names(res_pca$rotation)), 
+              mapping=aes(x = PC3, y = PC4, label = .names, colour = .names)) +
+  coord_fixed(ratio=1) + labs(x = "PC3", y = "PC4") + theme(legend.position="none")
+
+ggplot(circle,aes(x,y)) + geom_path() + 
+  geom_text(data=data.frame(res_pca$rotation, .names = row.names(res_pca$rotation)), 
+              mapping=aes(x = PC5, y = PC6, label = .names, colour = .names)) +
+  coord_fixed(ratio=1) + labs(x = "PC5", y = "PC6") + theme(legend.position="none")
+```
+
+*Update: I decreased the radius of the circle from 1.0 to 0.25* 
+
+We see that for each of the plotted principal components, there are many 
+features contributing a non-zero weight to its linear combination. None of the 
+coefficients is significantly greater than 0.25. 
+
+Let's check if the principal components corresponds in any way with the 
+target variable
+
+```{r}
+breaks <- 20
+pairs(res_pca$x[1:nrow(train), 1:5], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))], 0.2), asp=1)
+```
+
+We see some correspondence of the target variable with the principal components,
+especially for the lower values of y which are between 72 and 82 (the red 
+dots). Some of the datapoints with target values in the range of 111 up to 120
+could also be separated quite well (the lightgreen dots). The remaining points 
+form big clusters around zero and cannot really be distinguished. 
+
+### Logistic PCA
+
+A more appropriate method for dimensionality reduction on binary data is called 
+Logistic PCA. Unlike ordinary PCA, Logistic PCA maximizes the Bernoulli log-
+likelihood instead of the variance of linear combinations of the variables. 
+
+As an interesting fact, I would like to mention that the R-package was developed by Andrew J. Landgraf who recently won the 
+[March Machine Learning Mania Competition](http://blog.kaggle.com/2017/05/19/march-machine-learning-mania-1st-place-winners-interview-andrew-landgraf/) (thanks [Matt Motoki](https://www.kaggle.com/mmotoki) 
+for pointing this out in the comments). If you want to read more about Logistic PCA, check out
+his excellent paper ["Dimensionality Reduction for Binary Data through the Projection of Natural Parameters"](https://arxiv.org/pdf/1510.06112.pdf)
+or the [Introduction on CRAN](https://cran.r-project.org/web/packages/logisticPCA/vignettes/logisticPCA.html).
+
+
+```{r}
+library(logisticPCA)
+library(rARPACK)
+
+# Find the appropriate values for k and m. 
+# > logsvd_model = logisticSVD(binary_df, k = 20)
+# 8418 rows and 368 columns
+# Rank 20 solution
+# 95.6% of deviance explained
+# 397 iterations to converge
+#
+# > logpca_cv = cv.lpca(binary_df, ks = 20, ms = 1:10)
+#      m
+#  k       1        2      3        4        5        6        7        8        9       10
+#  20 400428 261586.6 185985 143663.3 118547.4 102668.9 92638.51 85579.33 80440.14 76707.54
+
+k <- 20; m <- 12
+logpca_model = logisticPCA(binary_df_train, k = k, m = m)
+logpca_features <- predict(logpca_model, newdata=binary_df); colnames(logpca_features) <- paste0("LPC", 1:k)
+```
+
+As before in the PCA section, let's check the correlation of the principal 
+components with the target variable
+
+```{r}
+breaks <- 20
+pairs(logpca_features[1:nrow(train),c("LPC1", "LPC3", "LPC5", "LPC6")], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))],0.2), asp=1)
+pairs(logpca_features[1:nrow(train),1:5], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))],0.2), asp=1)
+pairs(logpca_features[1:nrow(train),6:10], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))],0.2), asp=1)
+```
+
+The separation looks much better than for standard PCA. You can see that datapoints 
+with a small value of the target variable (the red dots) were separated very clearly. 
+Even clusters of datapoints with y-values in the range of 111 up to 120 can be seen. 
+The remaining datapoints form a big agglomeration centered around zero, as in the 
+PCA approach. 
+
+### Independent Component Analysis (ICA)
+
+As a next step, I would like to determine some indepent components using ICA. In 
+this approach, we just have to define the number of components we want to retain. 
+
+```{r}
+library(ica)
+
+n_ica_features <- 12
+ica_model <- icafast(binary_df, nc = n_ica_features, center=FALSE)
+S <- as.matrix(binary_df)
+Y <- tcrossprod(S, ica_model$Q)
+ica_features <- Y %*% ica_model$R; colnames(ica_features) <- paste0("IC", 1:n_ica_features)
+```
+
+And again, let's check the correlation with the target variable
+
+```{r}
+breaks <- 20
+pairs(ica_features[1:nrow(train),1:5], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))],0.2), asp=1)
+```
+
+### *NEW:* Multiple Correspondence Analysis (MCA)
+
+Another technique which seems to be quite promising is called Multiple Correspondence 
+Analysis which is an extension of Correspondence Analysis. It is used to analyze structures of 
+several categorical variables and can be seen as a generalization of PCA. 
+
+```{r}
+library(FactoMineR)
+
+n_comp <- 12
+binary_factor_df <- data.frame(lapply(binary_df, as.factor))
+binary_factor_df_train <- data.frame(lapply(binary_df_train, as.factor))
+res_mca = MCA(binary_factor_df, ncp=n_comp, graph = FALSE)
+```
+
+Let's take a look at the contributions of the observations and variables to the 
+first two components:
+
+```{r}
+plot.MCA(res_mca, invisible=c("var","quali.sup"), cex=0.6, col.ind=alpha("black", 0.4), label="ind", title="MCA Factor Map Individuals")
+
+plot.MCA(res_mca, invisible=c("ind","quali.sup"), cex=0.6, col.var=alpha("purple", 0.6), label="var", title="MCA Factor Map Variables")
+
+plot.MCA(res_mca, invisible=c("quali.sup"), cex=0.6, col.var=alpha("purple", 0.4), col.ind=alpha("black", 0.4), label="none", title="MCA Factor Map Variables and Individuals")
+```
+
+In the scatterplots above, we see the weights each observation (the 
+individuals) and variable contributes to the first two components (dimensions) calculated 
+by MCA. The first two dimensions capture 4.71 + 3.86 % of the variance of the target variable. 
+In the scatterplot of the individuals we can see that there are three groups that 
+are separated quite clearly. The big group around zero contains variables which don't 
+contribute that much to the first two dimensions. The individuals of the upper group contribute 
+a significant amount to the second dimension while the individuals of the lower group contribute a significant 
+amount to the first dimension. A similar pattern can be seen in the plot of the 
+variables, but other than in the previous plot we can't see some well separated clusters. Rather 
+than that, the overall distribution looks more like an L-shape. 
+
+Let's see how many of the dimensions we have to retain to cover 95% of the variance of
+the target variable:
+
+```{r}
+plot(res_mca$eig$`cumulative percentage of variance`, type="l", ylab="Explained variance", xlab="Number of dimensions", yaxt="n")
+axis(2, at=seq(0,100,by=10), labels = paste0(seq(0,100,by=10), "%"), las=1)
+min_variance <- 95
+abline(h=min_variance, col=alpha("red", 0.4)); text(0, min_variance, paste0(min_variance, "%"), col="red")
+min_dim <- min(which(res_mca$eig$`cumulative percentage of variance`>min_variance))
+abline(v=min_dim, col=alpha("blue", 0.4)); text(min_dim, 5, min_dim, col="blue")
+```
+
+So we have to retain approximately `r min_dim` dimensions to capture `r min_variance` % of the variance 
+in y. 
+
+Let's extract the MCA features and take a look at the correlation with the 
+target variable
+
+```{r}
+library(MASS)
+
+res_mca = MASS::mca(binary_factor_df, nf=min_dim)
+mca_features <- predict(res_mca, newdata = binary_factor_df); colnames(mca_features) <- paste0("MC", 1:min_dim)
+```
+
+```{r}
+breaks <- 20
+pairs(mca_features[1:nrow(train),1:5], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))],0.2), asp=1)
+pairs(mca_features[1:nrow(train),6:10], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))],0.2), asp=1)
+pairs(mca_features[1:nrow(train),11:15], col=alpha(rainbow(breaks)[as.numeric(cut(unlist(train_labels), breaks = breaks))],0.2), asp=1)
+```
+
+As in the logistic PCA approach, the datapoints with low and mid range of y were 
+separated quite well. Additionally, we see some more clusters of datapoints with 
+a mid-range value of y (the orange dots). 
+
+## Backtransformation 
+
+As a final step, let's combine all the results with id and target columns to get our 
+enhanced training and test sets.
+
+```{r}
+df_all <- cbind(df_all, clusters, pca_features, logpca_features, ica_features, mca_features)
+
+ntrain <- nrow(train)
+train <- df_all[1:ntrain, ]
+test <- df_all[(ntrain+1):nrow(df_all), ]
+
+train <- data.frame(ID = train_id, train, y = train_labels)
+test <- data.frame(ID = test_id, test)
+
+write_csv(train, "train_prep.csv")
+write_csv(test, "test_prep.csv")
+```
+
+**Stay tuned for further improvements!**
+
+**I'm happy about any kind of feedback. Please upvote if you like it ;-)**
+
+

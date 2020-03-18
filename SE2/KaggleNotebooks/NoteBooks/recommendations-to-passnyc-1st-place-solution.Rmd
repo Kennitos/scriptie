@@ -1,0 +1,1357 @@
+---
+title: "Recommendations to PASSNYC (1st place solution)"
+author: "Erik Bruin"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 4
+    code_folding: hide
+    theme: cosmo
+    highlight: tango
+---
+
+```{r}
+on_kaggle <- 1
+
+if (on_kaggle == 0){
+  path1 <- "" #load local copy of dataset
+  path2 <- ""
+  path3 <- ""
+  path4 <- "NY"
+  path5 <- ""
+  } else {
+  path1 <- "../input/data-science-for-good/" #access PASSNYC dataset on Kaggle
+  path2 <- "../input/passnycerik/" #access uploaded private dataset
+  path3 <- "../input/nyc-school-district-breakdowns/" #access to a Socrata's NYC Open Datasets on Kaggle
+  path4 <- "../input/passnycerik" #access to uploaded GIS data
+  path5 <- "../input/ny-school-demographics-and-accountability-snapshot/" #access to a Socrata's NYC Open Datasets on Kaggle
+  }
+```
+
+#Executive summary
+
+> Before getting started, I would first like to say that I am very happy and honoured to have won this competition (see [Congratulations to all of our winners!](https://www.kaggle.com/passnyc/data-science-for-good/discussion/63311)). I would like to thank both PASSNYC and Kaggle for giving me this opportunity. I really hope that my recommendations work for PASSNYC, and wish PASSNYC a lot of success in realizing its goals! Please enjoy reading my analysis, and let me know if you have any questions!
+
+The Specialized High School Admissions Test (SHSAT) is the only criterion for admissions to eight of the nine New York City Specialized High Schools. [PASSNYC](http://www.passnyc.org/) (Promoting Access to Specialized Schools in New York City) is a not-for-profit, volunteer organization. PASSNYC aims to identify talented underserved students within New York City's underperforming school districts in order to increase the diversity of students taking the Specialized High School Admissions Test.
+
+Roughly a third of the 8th graders applying to the City's public high schools sit for the SHSAT, with only 6% (5,000 students) receiving admission offers. The vast majority of these go to students from "feeder" schools that represent less than one fifth of the total number of middle schools in the city. It is also known that the student population on New York City's  elite specialized high schools is unbalanced with regards to the etnicity of the students. The biggest imbalance is that the percentage of Black/Latino students admitted to those schools is very small when compared to the city's overall students demographics. PASSNYC is focusing on "underperforming schooldistrict", and not specifically on Black/Hispanic oriented schools. However, most underperforming school districts turn out to be Black/Hispanic oriented indeed. Therefore, helping schools in underperforming districts should also help in reducing the demographical imbalance on those specialized highschools.
+
+The research question is twofold:
+
+* Can we give PASSNYC specific recommendations on how to increase the number of SHSAT takers in underperforming school districts (you cannot get a good test score that leads to an offer if you do not take the test)?
+* Can we improve the SHSAT success (percent of test takers getting an offer) of students in underperforming districts?
+
+**Recommendation 1: increase the number of SHSAT takers by focusing on schools with good average marks and few takers**
+
+My analysis shows that SHSAT participation is highly correlated to the Average Mark of a school. This makes a lot of sense to me, as schools with high average marks should also have a lot of individual students with high marks who have a realistic chance to get an offer. By using a simple Linear Regression model, I identified 18 schools in underperforming districts that could have sent at least 20 more students each to the SHSAT, when related to the schools' average marks. The sum of those Potential Extra SHSAT Takers for those 18 school is 533. In addition, I have also identified 15 schools in averagely performing districts that could have sent at least 20 extra SHSAT Takers. The sum of Potential Extra SHSAT Takers for those 15 schools is 658.
+
+The primary services that PASSNYC should provide to those schools are its "Outreach" services ("We partner with NYC middle schools and communities in underperforming school districts to increase awareness of the SHSAT amongst underserved students.").
+
+This recommendation is presented in section 10 on an interactive map which also displays which districts are underperforming. To make this map, I created categories based on the ratio between the number of offers received by all schools in a district and the total number of Grade 8 students that all schools in the district had. For instance: if there were 3,000 Grade 8 students in a district, and only 60 students eventually received an offer from a specialized high school, this ratio is 2% (the city average is 6% and can also be found on the PASSNYC website).
+
+In addition, as the cut-off for this recommendation is a bit arbitrary (only schools that could have sent at least 20 extra SHSAT Takers), I also added an interactive table that ranks 83 schools in under or averagely performing districts that could have sent at least 10 more students to the SHSAT in 2017. I recommend PASSNYC to approach schools from highest to lowest opportunity, depending on its resources.
+
+**Recommendation 2: improve success by focusing on schools with many "Level4 students" and few offers**
+
+The dataset contains 121 schools that received at least 6 offers in 2017, and 472 schools that received 0-5 offers per school.  SHSAT Success is high on those 121 schools that received at least 6 offers, as 27% of the SHSAT Takers received an offer (the city average is below 20%). This group of school also roughly matches PASSNYC's definition of "feeder schools" ("The vast majority of these 5,000 seats go to students from "feeder" schools that represent less than one fifth of the total number of middle schools in the City.")
+
+My analysis shows that success on the SHSAT test (the percent of takers getting an offer) is highly correlated with the number of "Level4" students that a school has ("Level4" is the highest level in New York school system) for the schools that received at least 6 offers. I made a Linear regression model that predicts the SHSAT Success based on the percentage of Level4 students for those 121 feeder schools. By applying this model on the 121 schools, I found 10 schools in underperforming or averagely performing districts that should have been able to receive at least 10 extra offers each.
+
+The remaining 472 schools with 0-5 offers cannot have had more than 10% SHSAT succes when comparing some overall numbers. As this is much lower than the 27% that the 121 schools in the model had on average, this basically means that the model is invalid for those 472 schools with 0-5 offers. However, what I did was that I made the assumption that PASSNYC could manage to improve success rates for those schools by interventions to the levels achieved by this group of 121 schools. If PASSNYC can take away underserving at those schools, it seems reasonable to assume that the model is also reasonable for the remaining 472 schools. By applying the model under this assumption, I have identified 23 schools in underperforming or averagely performing districts that should have gotten at least 10 offers each but only received 0-5 offers each.
+
+The primary services that PASSNYC should provide to those schools are its "Partnership" services ("We empower and prepare our scholars for the SHSAT by connecting them with select mentoring and test preparation programs."). If PASSNYC manages to let these 33 schools get their fair share of offers, my estimation is that this should lead to about 408 additional offers. This is 8.2% of the available seats, and since most of these schools are predominatly Black/Hispanic, this should also restore the demographic balance somewhat. 
+
+This recommendation is presented in section 11 on an interactive map which also displays which districts are underperforming (same map as used for recommendation 1). In addition, as the cut-off for this recommendation is a bit arbitrary (only schools that should have received at least 10 offers), I also added an interactive table that ranks more schools that were not getting their fair share of offers in 2017. I recommend PASSNYC to approach schools from highest to lowest opportunity, depending on its resources.
+
+Note: **please be aware that recommendation 1 and recommendation 2 can be complementary to each other.** For instance, the large Leonardo da Vinci is on both lists. Its number of SHSAT Takers was 93, and it received 0-5 offers. Its potential extra takers is 86, and its fair number of offers is 9. If PASSNYC manages to get these 86 extra students to take the test, and also manages to let the school get its fair share of offers, the number of fair offers for this school increases to 18 (based on 179 test takers).
+
+**Recommendation 3: approach bright students from schools with low SHSAT participation and low average school marks individually**
+
+My 3rd recommendation to PASSNYC is a small opportunity compared to the first two recommendations, but it might nonetheless be one that PASSNCY might want to take on. 56 schools sent hardly any students to the SHSAT in 2017 (0-5 SHSAT Takers). The common denominator seems that these schools all have really low average school marks.
+
+It seems likely that there is a culture on those schools that avoids the SHSAT ("we have no chance anyway"). However, my analysis shows that even on those schools there are Level4 students. My recommendation to PASSNYC is to take an individual approach for those students, rather than a school-wise approach. If PASSNYC manages to identify those students, and invites them to a third party location, these students form a decent sized group of bright students that can be motivated to take the SHSAT. 
+
+I identified 35 schools in under or averagely performing districts with 0-5 SHSAT Takers that had at least one Level4 result. The total number of students with a Level4 ELA for those 35 schools was 63, and the total number of Level4 Math results was 29. I added an interactive table that ranks these schools on decending numbers of Level4s.
+
+
+#Introducing PASSNYC
+
+Kaggle describes PASSNYC as follows:
+
+PASSNYC is a not-for-profit organization that facilitates a collective impact that is dedicated to broadening educational opportunities for New York City's talented and underserved students. New York City is home to some of the most impressive educational institutions in the world, yet in recent years, the City's specialized high schools - institutions with historically transformative impact on student outcomes - have seen a shift toward more homogeneous student body demographics.
+
+PASSNYC uses public data to identify students within New York City's under-performing school districts and, through consulting and collaboration with partners, aims to increase the diversity of students taking the Specialized High School Admissions Test (SHSAT). By focusing efforts in under-performing areas that are historically underrepresented in SHSAT registration, we will help pave the path to specialized high schools for a more diverse group of students.
+
+<center><img src="https://cdn.ipetitions.com/user-images/petitions/no-exams-for-ontario-high-school-students/6iZR4fBHTT2Vkm8tJY0n_final-exam1.jpg" style="width: 600px;"/></center>
+
+#What is the Specialized High School Admissions Test (SHSAT) exactly?
+
+The Specialized High School Admissions Test (SHSAT) is the only criterion for admissions to eight of the nine New York City Specialized High Schools. The only exception is the Fiorello H. LaGuardia High School of Music & Art and Performing Arts, which requires an audition or portfolio for admission.
+
+The SHSAT is administered by the New York City Department of Education and is only available to New York City residents in the 8th grade. 9th grade students may also choose to take the 9th grade version of the SHSAT for a very limited number of seats that may become available at the Specialized High Schools.
+
+The maximum score is 800, and Mathematics and English Language Arts (Verbal) are weighted equally.
+
+The Specialized High Schools that require the SHSAT are:
+
+* Bronx High School of Science
+* Brooklyn Latin School
+* Brooklyn Technical High School
+* High School for Math, Science and Engineering at City College
+* High School for American Studies at Lehman College
+* Queens High School for Sciences at York College
+* Staten Island Technical High School
+* Stuyvesant High School
+
+In 2016, approximately 28,000+ students took the SHSAT; less than 20% of those students were accepted to a New York City Specialized High School
+
+English Language Learners (ELLs) taking the SHSAT are granted extended testing time (2.0x standard testing time). Bilingual mathematics glossaries will also be provided by the NYCDOE on the day of the SHSAT at each test administration site in the NYCDOE's nine major languages: Arabic, Bengali, Chinese (Traditional and Simplified), French, Haitian-Creole, Korean, Russian, Spanish, and Urdu. Note: Students are not permitted to bring their own bilingual mathematics glossaries. 
+
+#Problem statement
+
+Kaggle decribes this as follows:
+
+PASSNYC and its partners provide outreach services that improve the chances of students taking the SHSAT and receiving placements in these specialized high schools. **The current process of identifying schools is effective, but PASSNYC could have an even greater impact with a more informed, granular approach to quantifying the potential for outreach at a given school**. Proxies that have been good indicators of these types of schools include data on English Language Learners, Students with Disabilities, Students on Free/Reduced Lunch, and Students with Temporary Housing.
+
+Part of this challenge is to assess the needs of students by using publicly available data to quantify the challenges they face in taking the SHSAT. The best solutions will enable PASSNYC to identify the schools where minority and underserved students stand to gain the most from services like after school programs, test preparation, mentoring, or resources for parents.
+
+#Loading the data
+
+##Loading libraries and reading the data{.tabset .tabset-fade .tabset-pills}
+
+The data files that am I using are:
+
+* The data provided by PASSNYC for this competition:
+    * "2016 School Explorer.csv"
+    * "D5 SHSAT Registrations and Testers.csv"
+    
+* Two public Socrata's NYC Open Datasets on Kaggle (a minumum requirement for this competition):
+    * [NY School Demographics and Accountability Snapshot](https://www.kaggle.com/new-york-city/ny-school-demographics-and-accountability-snapshot). This dataset is used introduced in section 6.2 (What's in the School demographics dataset?). 
+    * [NYC School District Breakdowns](https://www.kaggle.com/new-york-city/nyc-school-district-breakdowns). This dataset is used in section 9.1 (Preparing the data for a geographical analysis with interactive maps)
+
+
+* Additional datasets that were downloaded from the [City of New York website](https://data.cityofnewyork.us/browse?category=Education):
+    *  [2017-2018 SHSAT Admissions Test Offers By Sending School](https://data.cityofnewyork.us/Education/2017-2018-SHSAT-Admissions-Test-Offers-By-Sending-/vsgi-eeb5/). This is the full dataset on the 2017 SHSAT results that was published by the City of New York on July 18, 2018 .
+    * [GIS data: Boundaries of School Districts](https://data.cityofnewyork.us/Education/School-Districts/r8nu-ymqj/data). This dataset is used in section 9, in order to be able to make interactive maps based on the 32 school districts in New York.
+    * [2013 - 2018 Demographic Snapshot School](https://data.cityofnewyork.us/Education/2013-2018-Demographic-Snapshot-School/s52a-8aq6). This dataset contains demographic data by school for the years 2013-2018
+
+###Libraries
+
+```{r, message=FALSE, warning=FALSE}
+library(knitr)
+library(tidyr)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tibble)
+library(stringr)
+library(gridExtra)
+library(scales)
+library(lubridate)
+library(ggrepel)
+library(leaflet)
+library(reshape2)
+library(grid)
+library(rgdal)
+library(corrplot)
+```
+
+###Data
+
+```{r}
+schools <- as.tibble(data.table::fread(str_c(path1, "2016 School Explorer.csv")))
+#renaming is mostly copied from Bukun's EDA (with some additions)
+schools <- schools %>%
+  rename(EconomicNeedIndex = `Economic Need Index`,
+         SchoolName =  `School Name`,
+         DBN = `Location Code`,
+         GradeHigh = `Grade High`,
+         SchoolIncomeEstimate = `School Income Estimate`,
+         StudentAttendanceRate = `Student Attendance Rate`,
+         PercentOfStudentsChronicallyAbsent = `Percent of Students Chronically Absent`,
+         SupportiveEnvironmentPercentage = `Supportive Environment %`,
+         SupportiveEnvironmentRating = `Supportive Environment Rating`,
+         EffectiveSchoolLeadershipPercentage = `Effective School Leadership %`,
+         EffectiveSchoolLeadershipRating = `Effective School Leadership Rating`,
+         StrongFamilyCommunityTiesPercentage = `Strong Family-Community Ties %`,
+         StrongFamilyCommunityTiesRating = `Strong Family-Community Ties Rating`,
+         TrustPercentage = `Trust %` ,
+         TrustRating  =`Trust Rating` ,
+         StudentAchievementRating =`Student Achievement Rating`,
+         PctELL = `Percent ELL`,
+         RIR = `Rigorous Instruction Rating`,
+         RIRPercentage = `Rigorous Instruction %`,
+         CTR = `Collaborative Teachers Rating`,
+         CTRPercentage = `Collaborative Teachers %`,
+         AsianPercentage = `Percent Asian`,
+         BlackPercentage = `Percent Black`,
+         HispanicPercentage  = `Percent Hispanic`,
+         BlackHispanicPercentage = `Percent Black / Hispanic`,
+         WhitePercentage = `Percent White`,
+         AvgELA =`Average ELA Proficiency`,
+         AvgMath =`Average Math Proficiency`,
+         Grade3_ELA_All = `Grade 3 ELA - All Students Tested`,
+         Grade3_ELA_4sAll = `Grade 3 ELA 4s - All Students`,
+         Grade3_Math_All = `Grade 3 Math - All Students tested`,
+         Grade3_Math_4sAll = `Grade 3 Math 4s - All Students`,
+         Grade3ELA_AI4s = `Grade 3 ELA 4s - American Indian or Alaska Native`,
+         Grade3ELA_Black4s = `Grade 3 ELA 4s - Black or African American`,
+         Grade3ELA_Hispanic4s = `Grade 3 ELA 4s - Hispanic or Latino`,
+         Grade3ELA_Asian4s = `Grade 3 ELA 4s - Asian or Pacific Islander`,
+         Grade3ELA_White4s = `Grade 3 ELA 4s - White`,
+         Grade3ELA_Multiracial4s = `Grade 3 ELA 4s - Multiracial`,
+         Grade3ELA_LEP4s = `Grade 3 ELA 4s - Limited English Proficient`,
+         Grade3ELA_ED4s = `Grade 3 ELA 4s - Economically Disadvantaged`,
+         Grade3Math_AI = `Grade 3 Math 4s - American Indian or Alaska Native`,
+         Grade3Math_Black = `Grade 3 Math 4s - Black or African American`,
+         Grade3Math_Hispanic = `Grade 3 Math 4s - Hispanic or Latino`,
+         Grade3Math_Asian = `Grade 3 Math 4s - Asian or Pacific Islander`,
+         Grade3Math_White = `Grade 3 Math 4s - White`,
+         Grade3Math_Multiracial = `Grade 3 Math 4s - Multiracial`,
+         Grade3Math_LEP = `Grade 3 Math 4s - Limited English Proficient`,
+         Grade3Math_ED = `Grade 3 Math 4s - Economically Disadvantaged`,
+         Grade4ELA_AI = `Grade 4 ELA 4s - American Indian or Alaska Native`,
+         Grade4ELA_Black = `Grade 4 ELA 4s - Black or African American`,
+         Grade4ELA_Hispanic = `Grade 4 ELA 4s - Hispanic or Latino`,
+         Grade4ELA_Asian = `Grade 4 ELA 4s - Asian or Pacific Islander`,
+         Grade4ELA_White = `Grade 4 ELA 4s - White`,
+         Grade4ELA_Multiracial = `Grade 4 ELA 4s - Multiracial`,
+         Grade4ELA_LEP = `Grade 4 ELA 4s - Limited English Proficient`,
+         Grade4ELA_ED = `Grade 4 ELA 4s - Economically Disadvantaged`,
+         Grade4Math_AI = `Grade 4 Math 4s - American Indian or Alaska Native`,
+         Grade4Math_Black = `Grade 4 Math 4s - Black or African American`,
+         Grade4Math_Hispanic = `Grade 4 Math 4s - Hispanic or Latino`,
+         Grade4Math_Asian = `Grade 4 Math 4s - Asian or Pacific Islander`,
+         Grade4Math_White = `Grade 4 Math 4s - White`,
+         Grade4Math_Multiracial = `Grade 4 Math 4s - Multiracial`,
+         Grade4Math_LEP = `Grade 4 Math 4s - Limited English Proficient`,
+         Grade4Math_ED = `Grade 4 Math 4s - Economically Disadvantaged`,
+         Grade4_ELA_All = `Grade 4 ELA - All Students Tested`,
+         Grade4_ELA_4sAll = `Grade 4 ELA 4s - All Students`,
+         Grade4_Math_All = `Grade 4 Math - All Students Tested`,
+         Grade4_Math_4sAll = `Grade 4 Math 4s - All Students`,
+         Grade5ELA_AI = `Grade 5 ELA 4s - American Indian or Alaska Native`,
+         Grade5ELA_Black = `Grade 5 ELA 4s - Black or African American`,
+         Grade5ELA_Hispanic = `Grade 5 ELA 4s - Hispanic or Latino`,
+         Grade5ELA_Asian = `Grade 5 ELA 4s - Asian or Pacific Islander`,
+         Grade5ELA_White = `Grade 5 ELA 4s - White`,
+         Grade5ELA_Multiracial = `Grade 5 ELA 4s - Multiracial`,
+         Grade5ELA_LEP = `Grade 5 ELA 4s - Limited English Proficient`,
+         Grade5ELA_ED = `Grade 5 ELA 4s - Economically Disadvantaged`,
+         Grade5Math_AI = `Grade 5 Math 4s - American Indian or Alaska Native`,
+         Grade5Math_Black = `Grade 5 Math 4s - Black or African American`,
+         Grade5Math_Hispanic = `Grade 5 Math 4s - Hispanic or Latino`,
+         Grade5Math_Asian = `Grade 5 Math 4s - Asian or Pacific Islander`,
+         Grade5Math_White = `Grade 5 Math 4s - White`,
+         Grade5Math_Multiracial = `Grade 5 Math 4s - Multiracial`,
+         Grade5Math_LEP = `Grade 5 Math 4s - Limited English Proficient`,
+         Grade5Math_ED = `Grade 5 Math 4s - Economically Disadvantaged`,
+         Grade5_ELA_All = `Grade 5 ELA - All Students Tested`,
+         Grade5_ELA_4sAll = `Grade 5 ELA 4s - All Students`,
+         Grade5_Math_All = `Grade 5 Math - All Students Tested`,
+         Grade5_Math_4sAll = `Grade 5 Math 4s - All Students`,
+         Grade6ELA_AI = `Grade 6 ELA 4s - American Indian or Alaska Native`,
+         Grade6ELA_Black = `Grade 6 ELA 4s - Black or African American`,
+         Grade6ELA_Hispanic = `Grade 6 ELA 4s - Hispanic or Latino`,
+         Grade6ELA_Asian = `Grade 6 ELA 4s - Asian or Pacific Islander`,
+         Grade6ELA_White = `Grade 6 ELA 4s - White`,
+         Grade6ELA_Multiracial = `Grade 6 ELA 4s - Multiracial`,
+         Grade6ELA_LEP = `Grade 6 ELA 4s - Limited English Proficient`,
+         Grade6ELA_ED = `Grade 6 ELA 4s - Economically Disadvantaged`,
+         Grade6Math_AI = `Grade 6 Math 4s - American Indian or Alaska Native`,
+         Grade6Math_Black = `Grade 6 Math 4s - Black or African American`,
+         Grade6Math_Hispanic = `Grade 6 Math 4s - Hispanic or Latino`,
+         Grade6Math_Asian = `Grade 6 Math 4s - Asian or Pacific Islander`,
+         Grade6Math_White = `Grade 6 Math 4s - White`,
+         Grade6Math_Multiracial = `Grade 6 Math 4s - Multiracial`,
+         Grade6Math_LEP = `Grade 6 Math 4s - Limited English Proficient`,
+         Grade6Math_ED = `Grade 6 Math 4s - Economically Disadvantaged`,
+         Grade6_ELA_All = `Grade 6 ELA - All Students Tested`,
+         Grade6_ELA_4sAll = `Grade 6 ELA 4s - All Students`,
+         Grade6_Math_All = `Grade 6 Math - All Students Tested`,
+         Grade6_Math_4sAll = `Grade 6 Math 4s - All Students`,
+         Grade7ELA_AI4s = `Grade 7 ELA 4s - American Indian or Alaska Native`,
+         Grade7ELA_Black4s = `Grade 7 ELA 4s - Black or African American`,
+         Grade7ELA_Hispanic4s = `Grade 7 ELA 4s - Hispanic or Latino`,
+         Grade7ELA_Asian4s = `Grade 7 ELA 4s - Asian or Pacific Islander`,
+         Grade7ELA_White4s = `Grade 7 ELA 4s - White`,
+         Grade7ELA_Multiracial4s = `Grade 7 ELA 4s - Multiracial`,
+         Grade7ELA_LEP4s = `Grade 7 ELA 4s - Limited English Proficient`,
+         Grade7ELA_ED4s = `Grade 7 ELA 4s - Economically Disadvantaged`,
+         Grade7Math_AI4s = `Grade 7 Math 4s - American Indian or Alaska Native`,
+         Grade7Math_Black4s = `Grade 7 Math 4s - Black or African American`,
+         Grade7Math_Hispanic4s = `Grade 7 Math 4s - Hispanic or Latino`,
+         Grade7Math_Asian4s = `Grade 7 Math 4s - Asian or Pacific Islander`,
+         Grade7Math_White4s = `Grade 7 Math 4s - White`,
+         Grade7Math_Multiracial4s = `Grade 7 Math 4s - Multiracial`,
+         Grade7Math_LEP4s = `Grade 7 Math 4s - Limited English Proficient`,
+         Grade7Math_ED4s = `Grade 7 Math 4s - Economically Disadvantaged`,
+         Grade7_ELA_All = `Grade 7 ELA - All Students Tested`,
+         Grade7_ELA_All4s = `Grade 7 ELA 4s - All Students`,
+         Grade7_Math_All = `Grade 7 Math - All Students Tested`,
+         Grade7_Math_All4s = `Grade 7 Math 4s - All Students`,
+         Grade8ELA_AI = `Grade 8 ELA 4s - American Indian or Alaska Native`,
+         Grade8ELA_Black = `Grade 8 ELA 4s - Black or African American`,
+         Grade8ELA_Hispanic = `Grade 8 ELA 4s - Hispanic or Latino`,
+         Grade8ELA_Asian = `Grade 8 ELA 4s - Asian or Pacific Islander`,
+         Grade8ELA_White = `Grade 8 ELA 4s - White`,
+         Grade8ELA_Multiracial = `Grade 8 ELA 4s - Multiracial`,
+         Grade8ELA_LEP = `Grade 8 ELA 4s - Limited English Proficient`,
+         Grade8ELA_ED = `Grade 8 ELA 4s - Economically Disadvantaged`,
+         Grade8Math_AI = `Grade 8 Math 4s - American Indian or Alaska Native`,
+         Grade8Math_Black = `Grade 8 Math 4s - Black or African American`,
+         Grade8Math_Hispanic = `Grade 8 Math 4s - Hispanic or Latino`,
+         Grade8Math_Asian = `Grade 8 Math 4s - Asian or Pacific Islander`,
+         Grade8Math_White = `Grade 8 Math 4s - White`,
+         Grade8Math_Multiracial = `Grade 8 Math 4s - Multiracial`,
+         Grade8Math_LEP = `Grade 8 Math 4s - Limited English Proficient`,
+         Grade8Math_ED = `Grade 8 Math 4s - Economically Disadvantaged`,
+         Grade8_ELA_All = `Grade 8 ELA - All Students Tested`,
+         Grade8_ELA_4sAll = `Grade 8 ELA 4s - All Students`,
+         Grade8_Math_All = `Grade 8 Math - All Students Tested`,
+         Grade8_Math_4sAll = `Grade 8 Math 4s - All Students`)         
+
+schools$AvgELA <- as.numeric(schools$AvgELA)   
+schools$AvgMath <- as.numeric(schools$AvgMath)
+schools$PctELL <- as.numeric(gsub("%", "", schools$PctELL))
+         
+D5Shsat <- as.tibble(data.table::fread(str_c(path1, "D5 SHSAT Registrations and Testers.csv")))
+D5Shsat <- D5Shsat %>%
+  rename(SchoolName = `School name`,
+         SHSTYear = `Year of SHST`,
+         SHSTGrade = `Grade level`,
+         SHSTEnrollment = `Enrollment on 10/31`,
+         SHSATNumberOfStudentsRegistered = `Number of students who registered for the SHSAT`,
+         SHSATNumberOfStudentsTook = `Number of students who took the SHSAT`)
+
+Shsat2017 <- as.tibble(data.table::fread(str_c(path2, "2017-2018_SHSAT_Admissions_Test_Offers_By_Sending_School.csv")))
+
+demoSnapKaggle <- as.tibble(data.table::fread(str_c(path5, "2006-2012-school-demographics-and-accountability-snapshot.csv")))
+
+demoSnap <- as.tibble(data.table::fread(str_c(path2, "2013_-_2018_Demographic_Snapshot_School.csv")))
+demoSnap <- demoSnap %>% rename(Grade8 = `Grade 8`,
+                                PctHispanic = `% Hispanic`,
+                                PctMultipleRace = `% Multiple Race Categories Not Represented`,
+                                PctBlack =`% Black`,
+                                PctAsian = `% Asian`,
+                                PctWhite = `% White`)
+demoSnap[, c('PctHispanic', 'PctMultipleRace', 'PctBlack', 'PctAsian', 'PctWhite')] <- lapply(demoSnap[, c('PctHispanic', 'PctMultipleRace', 'PctBlack', 'PctAsian', 'PctWhite')], function(x) as.numeric(gsub("%", "", x)))
+
+schoolDistricts <- as.tibble(data.table::fread(str_c(path3, "school-district-breakdowns.csv")))
+schoolDistricts$District <- as.integer(sapply(schoolDistricts$`JURISDICTION NAME`, function(x) {strsplit(x, split='[" "]')[[1]][2]}))
+schoolDistricts$DistrictName <- sapply(schoolDistricts$`JURISDICTION NAME`, function(x) {strsplit(x, split='[" "]')[[1]][3]})
+```
+
+##Data size and structure of the PASSNYC dataset
+
+###The School explorer
+
+This dataset consists of 1272 schools in New York city, and 161 variables.
+
+```{r}
+dim(schools)
+```
+
+As the last 120 variables all show numbers by grade for specific groups, I am only showing a glimpse of the first 50 variables below. Variables 50-161 are all variables similar to the ones at the bottom (such as Grade3ELA_Black4s), and basically specify the number of high performing students for each Grade by group (the number of "Level 4" students, which is the highest level in New York). These groups are discussed in detail in section 6.3 (Analysis of the Grade 7 numbers in the school explorer).
+
+```{r}
+glimpse(schools[,1:50])
+```
+
+###The District 5 SHSAT file
+
+Altogether, we have school data from 1270 schools and unfortunately only SHSAT (time series) data for 28 schools in District 5 (Central Harlem). 
+
+```{r}
+glimpse(D5Shsat)
+```
+
+```{r}
+cat('There are', length(unique(D5Shsat$DBN)), 'unique schools in the District5 SHSAT file')
+```
+
+#Exploratory Data Analysis (EDA)
+
+##What's in the District 5 SHSAT file?
+
+Altogether, this file contains time series data (2013-2016) for 28 schools. Although I immediately felt that this sample was too small in order to be able to draw conclusions from, I still had a look at it.
+
+###Time series of the number of students that took the test by school
+
+I consolidated the separate Grade 8 and Grade 9 numbers into totals by year. Altogether, the number of students from those 28 schools that took the test increased from 314 in 2013 to 351 in 2016. Below, I am displaying the time series by school. However, since the numbers of those individual schools are small, I do not consider this time series information very useful.
+
+```{r, out.width="100%"}
+#Fixing 2 schools where the schoolname is not the same for all observations (first one had name change)
+D5Shsat$SchoolName[D5Shsat$DBN=='05M286'] <- "Urban Assembly Academy for Future Leaders"
+D5Shsat$SchoolName[D5Shsat$DBN=='05M367'] <- "Academy for Social Action"
+
+D5Shsat <- left_join(D5Shsat, schools %>% select(DBN, Latitude, Longitude, AvgELA, AvgMath, GradeHigh), by="DBN")
+
+#insert longitude and latitude for some schools that are missing in the schools csv (for 7/28 schools)
+D5Shsat$Latitude[D5Shsat$DBN=='05M157'] <- 40.807063
+D5Shsat$Longitude[D5Shsat$DBN=='05M157'] <- -73.938829
+D5Shsat$Latitude[D5Shsat$DBN=='05M304'] <- 40.817460
+D5Shsat$Longitude[D5Shsat$DBN=='05M304'] <- -73.947141
+D5Shsat$Latitude[D5Shsat$DBN=='05M369'] <- 40.815681
+D5Shsat$Longitude[D5Shsat$DBN=='05M369'] <- -73.955774
+D5Shsat$Latitude[D5Shsat$DBN=='05M692'] <- 40.821474
+D5Shsat$Longitude[D5Shsat$DBN=='05M692'] <- -73.949039
+D5Shsat$Latitude[D5Shsat$DBN=='05M367'] <- 40.815681
+D5Shsat$Longitude[D5Shsat$DBN=='05M367'] <- -73.955774
+D5Shsat$Latitude[D5Shsat$DBN=='05M410'] <- 40.815681
+D5Shsat$Longitude[D5Shsat$DBN=='05M410'] <- -73.955774
+D5Shsat$Latitude[D5Shsat$DBN=='05M469'] <- 40.807063
+D5Shsat$Longitude[D5Shsat$DBN=='05M469'] <- -73.938829
+
+D5TSwide <- dcast(D5Shsat, DBN+SchoolName~SHSTYear, value.var = "SHSATNumberOfStudentsTook", fun.aggregate = sum, na.rm = TRUE)
+D5TS <- D5TSwide %>% select(SchoolName, '2013', '2014', '2015', '2016')
+D5TS <- tidyr::gather(D5TS, key="Year", value="Students", '2013', '2014', '2015', '2016')
+D5TS$Year <- as.numeric(D5TS$Year)
+D5TS$SchoolName <- as.factor(D5TS$SchoolName)
+
+plotly::ggplotly(ggplot(D5TS, aes(x=Year, y=Students, group=SchoolName, colour=SchoolName)) +
+        geom_line() + geom_point() + theme(legend.position="none")+ labs(y="Number of Students that took the SHSAT"))
+```
+**Hovering over the points shows a label with details, inclusing the School name**
+
+###Displaying 2016 data on a Leaflet map
+
+I decided to display some of the 2016 numbers on a map to see if I could derive some insights.
+
+```{r, out.width="100%"}
+D5ShsatLocations <- D5Shsat %>% filter(SHSTYear==2016 & SHSTGrade==8) %>%
+        mutate(AvgMark=((as.numeric(AvgELA)+as.numeric(AvgMath))/2))
+
+bins <- c(2, 2.5, 3, 3.5, 4)
+pal <- colorBin(c("red", "orange", "yellow", "green"), domain = D5ShsatLocations$AvgMark, bins = bins)
+
+labels <- paste0("<strong>School: </strong>", D5ShsatLocations$SchoolName, 
+                 "<br><strong>Total number of Grade 8 students who did the test: </strong>",
+                 D5ShsatLocations$SHSATNumberOfStudentsTook,
+                 "<br><strong>Average Mark: </strong>", D5ShsatLocations$AvgMark,
+                 "<br><strong>AvgELA: </strong>", D5ShsatLocations$AvgELA,
+                 "<br><strong>AvgMath: </strong>", D5ShsatLocations$AvgMath) %>%
+                lapply(htmltools::HTML)
+
+leaflet(D5ShsatLocations) %>%
+        addTiles() %>%
+        addProviderTiles("Stamen.TonerLite") %>%
+        addCircleMarkers(~Longitude, ~Latitude, color = ~pal(AvgMark), fillOpacity = 1.0, radius=~sqrt(SHSATNumberOfStudentsTook), label = labels) %>%
+        addLegend(pal = pal, values = ~AvgMark, opacity = 0.7, title = "Average Mark on school", position = "bottomright")
+```
+
+**Hovering over the circles shows a label with detailed information**
+
+The size of the circles corresponds to the number of Grade 8 students from a school who took the test in 2016. As you can see, the two schools that sent most students to the SHSAT test both had average marks above 3.0 (average of ELA and Math, all Grades).
+
+##What's in the School demographics dataset?
+
+The Kaggle [NY School Demographics and Accountability Snapshot](https://www.kaggle.com/new-york-city/ny-school-demographics-and-accountability-snapshot) dataset contains data on all public schools in New York for the schoolyears 2005-2006 to 2011-2012.
+
+The dataset contains observations per school for each schoolyear. Variables include:
+
+* the total enrollment (number of student)
+* enrollment by grade. Grades range from Pre Kindergarden to Grade 12
+* numbers (and percent) of Asian, Black, White, Hispanic and Multiracial students
+* numbers (and percent) of male and female students
+
+This enables me to for instance produce an overall breakdown of the student population according to race in a particular schoolyear. Altogether, there were 971,919 students in the NYC schoolsystem in schoolyear 2011-2012.
+
+```{r}
+allSt <- sum(demoSnapKaggle$total_enrollment[demoSnapKaggle$schoolyear=='20112012'])
+
+DF <- data.frame(Race=c("Asian", "Black", "Hispanic", "White"), Students=colSums(demoSnapKaggle[demoSnapKaggle$schoolyear=='20112012', c(27, 29, 31, 33)]))
+DF$Percent <- paste0(round((DF$Students/allSt)*100), "%")
+
+DF %>%
+        ggplot(aes(x=Race, y=Students)) + geom_bar(stat='identity', fill='blue') +
+        scale_y_continuous(labels=comma) +
+        ggtitle("Total number of students in the New York public school system in 2011-2012") +
+        geom_label(label=DF$Percent) +
+        theme(plot.title = element_text(size = 12, face="bold"))
+```
+
+Although this information is very usefull for my analysis, there is actually a dataset available on the website of the City of New York that contains the same data for the years 2013-2018 ([2013 - 2018 Demographic Snapshot School](https://data.cityofnewyork.us/Education/2013-2018-Demographic-Snapshot-School/s52a-8aq6)). As I of course don't want to work with old data, I am going to work with this dataset instead (specifically the schoolyear 2017-2018). However, since I have done this EDA on the Kaggle dataset, I have been assured that it counts as one of the 2 required Socrata datasets.
+
+##Analysis of the "Level 4" numbers in the school explorer
+
+Since the Grade 7 students in 2016 are the same students who (potentially) took the SHSAT test in 2017, this group is very interesting to analyze. 
+
+Altogether, the school explorer contains 20 variables with information on the numbers of students in Grade 7 in 2016. Half of those are English Language Arts (ELA) numbers, and the other half are Mathematics numbers. Since I am not am American, I looked up how test scores are composed in New York. On [this website](https://www.testingmom.com/tests/nys/nys-assessments-scored/), I found out that:
+
+New York State assigns Performance Levels 4, 3, 2, and 1 to scale scores on the test. Students can score a Level 4 through Level 1 on the test, depending on their scale score.
+
+The best students score Level 4, and these are exactly the numbers that are broken down by group in the school explorer. These are:
+
+* All students
+* All students with Level 4
+* Black students with Level 4
+* Hispanic students with Level 4
+* Asian students with Level 4
+* White students with Level 4
+* Multi racial students with Level 4
+* Limited English Proficiency (LEP) students with Level 4
+* Economically Disadvantaged (ED) with Level 4
+* American indian or Alaska native (AI) with Level 4
+
+```{r}
+glimpse(schools[,122:141])
+```
+
+```{r}
+Grade7ELATotals <- colSums(schools[, 122:131])
+Grade7MathTotals <- colSums(schools[,132:141])
+
+cat(' The total number of Grade 7 students on New York Middle schools in 2016 was', Grade7MathTotals[1],"\n", 'Of those students', Grade7ELATotals[2], 'had Level 4 ELA proficiency, and', Grade7MathTotals[2], 'had Level 4 Math proficiency')
+```
+
+Note: there seems to be a little bit of a discrepancy in the data, as the total number of Grade 7 ELA and Math students are not exactly the same (68,254 and 69,053). Also, both these totals seem to contain some missing data, as the total number of Grade 7 students in 2016 should be around 76,000 (source: City of New York website).
+
+The first figure below shows the absolute Level 4 numbers in Grade 7 in the school explorer. The second graph shows the numbers relative to the student population. What now really stands out is that Asian students are really good at Math, with 40% of students scoring Level 4! Also both Black and Hispanic students are really underperforming, with Black students scoring a little worse than the Latino's. It also becomes clear that those groups have problems with both Math and ELA. The problems with ELA and Math seem 'equally bad' for both groups.
+
+```{r, out.width="100%"}
+Grade7Groups <- c("Black", "Hispanic", "Asian", "White")
+Grade7Share <- c(0.271, 0.405, 0.155, 0.149)
+Grade7DF <- data.frame(etnicity=Grade7Groups, test="ELA" , level4=Grade7ELATotals[4:7], total=Grade7ELATotals[1]*Grade7Share)
+Grade7DF1 <- data.frame(etnicity=Grade7Groups, test="Math" , level4=Grade7MathTotals[4:7], total=Grade7MathTotals[1]*Grade7Share)
+Grade7DF <- rbind(Grade7DF, Grade7DF1)
+Grade7DF <- Grade7DF %>% mutate(RelativeLevel4=round((level4/total)*100))
+
+g1 <- Grade7DF %>%
+        ggplot(aes(x=etnicity, y=level4, fill=test)) +
+        geom_bar(stat='identity', position="dodge") + labs(y="Number of Level 4 scores", x="Etnicity")
+
+g2 <- Grade7DF %>%
+        ggplot(aes(x=etnicity, y=RelativeLevel4, fill=test)) +
+        geom_bar(stat='identity', position="dodge") + labs(y="Percentage scoring Level 4", x="Etnicity")  
+
+grid.arrange(g1, g2, nrow=1)
+```
+
+With such small percentages of Black/Hispanic students being outperformers with Level4 scores, it is no wonder that these groups are underrepresented on the specialized highschools. This article, [What's Going On With New York's Elite Public High Schools?](https://www.theatlantic.com/education/archive/2018/06/new-york-high-schools-stuyvesant-brooklyn-bronx/562772/) for instance makes the following point:
+
+> "The problem is one of equity: There are very few black and Latino students in the specialized schools. The three highest-status schools-Stuyvesant, Bronx Science, and Brooklyn Tech-have black and Latino student populations of 4, 9, and 13 percent, respectively, far below the 70 percent in public schools citywide."
+
+Another article [A Demographic Breakdown of Who Took, and Passed, the Test](https://cityroom.blogs.nytimes.com/2010/02/16/a-demographic-breakdown-of-who-took-and-passed-the-test/), although numbers are a bit old (2010), states that:
+
+> Black/Hispanic students are relatively underrepresented in the percentages of SHSAT Takers (a "quantity" problem). In addition, Black/Hispanic students also perform much worse than Asian and White students on the test (a "quality" problem).
+
+In the remaining sections of the EDA, I am adding the percentage Black/Hispanic to most visualizations. This is mostly to get a feel for the problem. However, my final recommendations are filtered on underperforming districts as this is what PASSNYC focuses on (knowing that there is a lot of overlap; underperforming school districts mostly also have high percentages of Black/Hispanic students).
+
+##The complete SHSAT 2017-2018 dataset from the City of New York
+
+In my opinion the District 5 data only gave some indications of issues and correlations. The dataset is just too small to draw any statistically relevant conclusions from. The 28 schools in it only delivered 351 students to the test in 2016 while the total number of test takers was 28,000+ (see [About the SHSAT](https://www.kaptest.com/shsat/what-is-the-shsat)).
+
+Fortunately, the full dataset on the SHSAT results was published by the City of New York on July 18, 2018 ([Link](https://data.cityofnewyork.us/Education/2017-2018-SHSAT-Admissions-Test-Offers-By-Sending-/vsgi-eeb5/)).
+
+Note: I started my analyses by using the file that [RichardWDiSalvo](https://www.kaggle.com/rdisalv2/parsing-nyt-shsat-table) scraped from the website of the New York Times. (see also: [this article from the New York Times on the 2017 SHSAT takers](https://www.nytimes.com/interactive/2018/06/29/nyregion/nyc-high-schools-middle-schools-shsat-students.html?rref=collection%2Fbyline%2Fjasmine-c.-lee&action=click&contentCollection=undefined&region=stream&module=stream_unit&version=latest&contentPlacement=1&pgtype=collection).). Still many thanks for this again Richard! It gave me a really good start, but I decided to switch to the "official data" once they became available.
+
+```{r}
+Shsat2017 <- Shsat2017 %>% rename(DBN=`Feeder School DBN`, SchoolName2= `Feeder School Name`, Grade8=`Count of Students in HS Admissions`, NumSHSATTestTakers = `Count of Testers`, NumSpecializedOffers=`Count of Offers`)
+glimpse(Shsat2017)
+Shsat2017$Offers <- Shsat2017$NumSpecializedOffers #keeping character variable for display purposes
+Shsat2017 <- Shsat2017 %>% filter(Grade8!="0-5")
+Shsat2017$NumSHSATTestTakers[Shsat2017$NumSHSATTestTakers=="0-5"] <- 0
+Shsat2017$NumSpecializedOffers[Shsat2017$NumSpecializedOffers=="0-5"] <- 0
+Shsat2017[, 3:5] <- lapply(Shsat2017[, 3:5], as.integer)
+```
+
+This dataset contains the of all middle schools with Grade 8 students. The dataset only specifies the Grade 8 SHSAT test takers (not the Grade 9 students). If a school only sent a small numbers of students to the SHSAT, the number is not specified but categorized as 0-5 students (taking the SHSAT). Similarly, if a school only received a few offers, this number is also categorized as 0-5 students (receiving an offer).
+
+Note: I removed one school for which even the number of Grade 8 students was unknown (categorized as 0-5).
+
+```{r}
+cat(' From', length(Shsat2017$NumSHSATTestTakers[Shsat2017$NumSHSATTestTakers !=0]), 'middle schools that sent at least 6 students to the test,', sum(Shsat2017$NumSHSATTestTakers), 'Grade 8 students took the SHSAT.', "\n", 'From the', length(Shsat2017$NumSpecializedOffers[Shsat2017$NumSpecializedOffers!=0]), 'schools that received at least 6 offers, a total of', sum(Shsat2017$NumSpecializedOffers), 'students received an offer.')
+```
+
+```{r}
+cat('In addition,', length(Shsat2017$NumSHSATTestTakers[Shsat2017$NumSHSATTestTakers==0]), 'schools sent 0-5 students to the SHSAT, and', length(Shsat2017$NumSpecializedOffers[Shsat2017$NumSpecializedOffers==0]), ' schools received 0-5 offers.' )
+```
+
+PASSNYC states on its website that a total of about 5,000 students received an offer. This means that the remaining 1,000 offers go to Grade 8 students of those 472 schools with 0-5 offers, and also to some Grade 9 students who took the SHSAT.
+
+###Adding etnicity distribution by school
+
+The file "2013_-_2018_Demographic_Snapshot_School.csv" contains the full breakdown of etnicity groups for each school in schoolyear 2017-2018. I am adding the percentages Asian, Black, Hispanic, White, and Multiple Race to the Shsat2017 dataframe.
+
+```{r}
+demoSnap <- demoSnap %>% filter(Year=='2017-18')
+Shsat2017 <- left_join(Shsat2017, demoSnap %>% select(DBN, PctAsian, PctBlack, PctHispanic, PctMultipleRace, PctWhite), by="DBN")
+```
+
+###Adding information from the school explorer
+
+I also want to add some information from the school explorer to the Shsat2017 dataframe. I am doing that here through a (left) join. The variables that I am adding are: AvgELA, AvgMath, District, Grade7_ELA_All4s, Grade7_Math_All4s, Grade7_ELA_All, and Grade7_Math_All, Latitude, Longitude, and PctELL.
+
+```{r}
+Shsat2017 <- left_join(Shsat2017, schools %>% select(DBN, AvgELA, AvgMath, District, Grade7_ELA_All4s, Grade7_Math_All4s, Grade7_ELA_All, Grade7_Math_All, Latitude, Longitude, PctELL), by="DBN")
+```
+
+```{r}
+MissingSchools <- anti_join(Shsat2017, schools %>% select(DBN, District), by="DBN")
+cat('Only', nrow(MissingSchools), 'of the', nrow(Shsat2017), 'schools in the Shsat2017 file do not exist in the school explorer')
+```
+
+###Calculating new variables
+
+I am also adding some new variables;
+
+* "Percentage of SHSAT takers receiving an offer" (Numbers of SHSAT takers/Number of Offers by school)
+* "Percentage Black/Hispanic students" (PctBlack + PctHispanic)
+* "The total number of Black/Hispanic students in Grade 8" (Number of Grade 8 students * Percentage Black/Hispanic)
+* "Percentage of students who did the SHSAT" (Number of SHSAT takers/Number of Grade 8 students)
+* "Average Mark" (the average of AvgELA and AvgMath)
+* "Percent of students with Level 4 ELA in Grade 7 (Grade7_ELA_All4s/Grade7_ELA_All)
+* "Percent of students with Level 4 Math in Grade 7 (Grade7_Math_All4s/Grade7_Math_All)
+* "Percent of students with Level 4 in Grade 7" (average of Level4 percentages ELA and Math in Grade 7)
+* "Average number of Level 4 students" (Grade7_ELA_All4s+Grade7_Math_All4s)/2
+
+```{r}
+Shsat2017 <- Shsat2017 %>% mutate(PctOffersPerStudent = round((NumSpecializedOffers/NumSHSATTestTakers)*100),
+                                  PctBlackOrHispanic = (PctBlack + PctHispanic),
+                                  TotalGrade8BlHisp = round((Grade8*PctBlackOrHispanic)/100),
+                                  PerDidSHSAT = round((NumSHSATTestTakers/Grade8)*100),
+                                  AvgMark=round(x=((AvgELA+AvgMath)/2), digits=2),
+                                  PctLevel4ELA= round((Grade7_ELA_All4s/Grade7_ELA_All)*100),
+                                  PctLevel4Math= round((Grade7_Math_All4s/Grade7_Math_All)*100),
+                                  AvgLevel4=round(x=((Grade7_ELA_All4s+Grade7_Math_All4s)/2), digits=1))
+
+Shsat2017$PctOffersPerStudent[is.nan(Shsat2017$PctOffersPerStudent)] <- 0
+Shsat2017$PctLevel4ELA[is.nan(Shsat2017$PctLevel4ELA)] <- 0
+Shsat2017$PctLevel4Math[is.nan(Shsat2017$PctLevel4Math)] <- 0
+
+Shsat2017 <- Shsat2017 %>% mutate(PctLevel4 = round((PctLevel4ELA+PctLevel4Math)/2))
+```
+
+##SHSAT numbers by school
+
+###SHSAT takers by school
+
+####Schools with highest numbers of SHSAT takers
+
+What we can see here is that in most schools that deliver lots of SHSAT takers, the percentage of Black and Hispanic students on those schools is well below the demographic average of 71% in the city.
+
+You can also see that two of those school actually have a high percentage of Black/Hispanic students (The William W. Niles school (82%), and The Eugenio Maria De Hostos school(78%)). 
+
+```{r, out.width="100%"}
+rm(g1, g2) #remove previous graphs from Global Environment
+
+title1 <- textGrob("First column of labels is the school size (all Grade 8 students)", gp=gpar(fontsize=10))
+
+grid.arrange(Shsat2017 %>% top_n(20, wt=NumSHSATTestTakers) %>%
+        ggplot(aes(x=reorder(SchoolName2, NumSHSATTestTakers), y=NumSHSATTestTakers, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,430)) +
+        theme(legend.position="bottom") +
+        labs(x="", y="Number of SHSAT Takers 2017", fill="Percent Black or Hispanic") +
+        geom_text(aes(label = NumSHSATTestTakers), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="yellow", high="brown", limits=c(0,100)) +
+        geom_label(aes(y = .1, label = Grade8), hjust=0, size=3),
+        top=title1)
+```
+
+####Schools with almost no SHSAT takers (0-5 test takers)
+
+Almost all schools where almost no one took the test in 2017 (56 schools) had very low average marks (average of AvgELA and AvgMath in the school explorer). What is also noticable is that all those school had a really high percentage of Black/Hispanic students. Only a few schools had a percentage Black/Hispanic that is significantly below the demographic average. However, those schools had very few students anyway. 
+
+I believe that the low average marks could very likely have led to a culture in which nobody shows any interest in the SHSAT (as most students are not bright enough to have a realistic chance at the SHSAT anyway).
+
+These 56 schools are not dealt with in the recommendations that I have made in sections 10 and 11. However, even on those schools there are talented students. Therefore, I have composed a specific recommendation for those schools in section 12.
+
+```{r, out.width="100%", fig.height=6, warning=FALSE}
+n1 <- Shsat2017 %>% filter(NumSHSATTestTakers==0) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctBlackOrHispanic), y=PctBlackOrHispanic, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + labs(x="", y="Percent Black or Hispanic") +
+        coord_flip() + scale_fill_continuous(low="yellow", high="brown", limits=c(0,100)) +
+        geom_text(aes(y = .1, label = Grade8), hjust=0, size=2.5, color="white") +
+        theme(legend.position="none", axis.text.y = element_text(size=6))
+
+n2 <- Shsat2017 %>% filter(NumSHSATTestTakers==0) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctBlackOrHispanic), y=AvgMark, fill=AvgMark)) +
+        geom_bar(stat='identity') + theme(legend.position="none") + labs(x="", y="Average Mark") +
+        coord_flip(ylim=c(0,4.5)) +
+        geom_text(aes(label = AvgMark), size=2.5, hjust=-0.1) +
+        scale_fill_continuous(low="red", high="green", limits=c(1.8,4)) + theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+grid.arrange(n1, n2, widths=c(4,1), nrow=1, top=title1)
+```
+
+####The percentage of SHSAT takers of the largest middle schools
+
+The percentage of test takes varies a lot among the 20 largest middle schools. Percentages of test takers are anywhere between 13% and 75%. However, to me it is no surprise that the schools with low Black/Latino percentages seem to score much better regarding the percentage of test takers.
+
+Note: The most successful school, The Christa McAuliffe school (205 offers), is not on this graph as it is a middle sized school with only 278 Grade 8 students. Of those 278 students, 251 took the SHSAT (90%).
+
+```{r, out.width="100%"}
+rm(n1, n2) #remove previous graphs from Global Environment
+
+grid.arrange(Shsat2017 %>% top_n(20, wt=Grade8) %>%
+        ggplot(aes(x=reorder(SchoolName2, Grade8), y=PerDidSHSAT, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim = c(0, 90)) +
+        geom_label(aes(y = .1, label = Grade8), hjust=0, size=3) +
+        labs(x="", y="Percent that took the SHSAT", fill="Percent Black or Hispanic") +
+        geom_text(aes(label = paste(PerDidSHSAT, "%")), hjust=-0.1, size=3) +
+        scale_fill_continuous(low="yellow", high="brown", limits=c(0,100)) +
+        theme(legend.position="bottom"),
+        top=title1)
+```
+
+####The percentage of SHSAT takers of the largest schools that are predominatly asian/white, and the largest schools that are predominantly black/hispanic
+
+Below I have displayed the largest schools that are predominantly asian/white, and the schools that are predominantly Black/Hispanic. On average, asian/white schools certainly seem to have better averages of students taking the test. However, the variation is significant, and 5 out of 15 of the largest predominantly Black/Hispanic schools also have percentages of students taking the test that are higher than the city average of about 34%.
+
+```{r, out.width="100%", fig.height=7}
+b1 <- Shsat2017 %>% filter(PctBlackOrHispanic < 30) %>% top_n(15, wt=Grade8) %>%
+        ggplot(aes(x=reorder(SchoolName2, Grade8), y=PerDidSHSAT, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim = c(0, 90)) +
+        geom_label(aes(y = .1, label = Grade8), hjust=0, size=3) +
+        labs(x="", y="Percent that took the SHSAT", title="Largest schools with at least 70% Asian/White students") +
+        geom_text(aes(label = paste(PerDidSHSAT, "%")), hjust=-0.1, size=3) +
+        scale_fill_continuous(low="yellow", high="brown", limits=c(0,100)) +
+        theme(legend.position="none", axis.title.x = element_text(size=8), plot.title = element_text(size=12, hjust=3))
+
+b2 <- Shsat2017 %>% filter(PctBlackOrHispanic > 70) %>% top_n(15, wt=Grade8) %>%
+        ggplot(aes(x=reorder(SchoolName2, Grade8), y=PerDidSHSAT, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim = c(0, 90)) +
+        geom_label(aes(y = .1, label = Grade8), hjust=0, size=3) +
+        labs(x="", y="Percent that took the SHSAT", fill="%B/H", title="Largest schools with at least 70% Black/Hispanic students") +
+        geom_text(aes(label = paste(PerDidSHSAT, "%")), hjust=-0.1, size=3) +
+        scale_fill_continuous(low="yellow", high="brown", limits=c(0,100)) +
+        theme(legend.justification=c(1,0), legend.position=c(1,0), axis.title.x = element_text(size=8), plot.title = element_text(size=12, hjust=2.2))
+
+cowplot::plot_grid(b1, b2, align="v", ncol=1)
+```
+
+###Numbers of Offers by school
+
+####Schools with highest numbers of students receiving an offer
+
+The top20 middle schools from which most students received an offer from a specialized high school in 2017, all had low percentages of Black/Hispanic students (highest percentage is at Frank Sansivieri school with 59% Black/Hispanic students).
+
+```{r, out.width="100%"}
+rm(b1, b2) #remove previous graphs from Global Environment
+
+grid.arrange(Shsat2017 %>% top_n(20, wt=NumSpecializedOffers) %>%
+        ggplot(aes(x=reorder(SchoolName2, NumSpecializedOffers), y=NumSpecializedOffers, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,250)) +
+        theme(legend.position="bottom") +
+        labs(x="", y="Number of offers received", fill="Percent Black/Hispanic") +
+        geom_text(aes(label = NumSpecializedOffers), size=3, hjust=-0.1) + scale_fill_continuous(low="yellow", high="brown", limits=c(0,100)) +
+        geom_label(aes(y = .1, label = Grade8), hjust=0, size=3),
+        top = title1)
+```
+
+####The most successful schools (measured in share of SHSAT takers who received an offer)
+
+The figure below displays the Top20 of schools with the best results on the SHSAT. The Christa McAuliffe School scores best with 82% of 251 students taking the test getting an offer from a specialized high school.However, what we can also see is that those schools scoring best at the percentage of students actually getting an offer are all white/asian oriented (the exception is the small Columbia Secondary School with 64% Black/Latinos).
+
+```{r, out.width="100%"}
+title2 <- textGrob("First column of labels is the number of test takers", gp=gpar(fontsize=10))
+
+s1 <- Shsat2017 %>% top_n(20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=PctOffersPerStudent, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,100)) +
+        theme(legend.position="none", axis.text.y = element_text(size=7)) +
+        labs(x="", y="Percent offers", fill="%B/H") +
+        geom_label(aes(y = .1, label =NumSHSATTestTakers), hjust=0, size=3) +
+        geom_text(aes(label = paste0(PctOffersPerStudent, "%")), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="yellow", high="brown", limits=c(0,100))
+
+s2 <- Shsat2017 %>% top_n(20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=PctLevel4, fill=PctLevel4)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0, 100)) +
+        labs(x="", y="% Level4") +
+        geom_text(aes(label = paste0(PctLevel4, "%")), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="red", high="green", limits=c(0,100)) + theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+s3 <- Shsat2017 %>% top_n(20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=AvgMark, fill=AvgMark)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,5.6)) +
+        labs(x="", y="AvgMark") +
+        geom_text(aes(label = AvgMark), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="red", high="green", limits=c(0,5)) + theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+
+grid.arrange(s1, s2, s3, widths=c(5,1,1), nrow=1, top=title2)
+```
+
+####The least successful schools
+
+**Least successful of the schools with known success (at least 6 offers)**
+
+As mentioned before, for 121 schools we know the exact number of offers (at least 6). Of those schools, the 20 schools with least success are shown below. As you can see below, these schools include the two of large schools that are predominatly Black/Hispanic and also sent many students to the SHSAT (The William W. Niles school (82% Black/Hispanic), and The Eugenio Maria De Hostos school(78% Black/Hispanic)). Almost all schools with low SHSAT Success also had a low percentage of Level4 students, and Average Marks were not very good either. An interesting exception is the Janice Marie Knight school, which has a decent percentage of Level4 students. This school therefore seems a good candidate to pay attention to for PASSNYC!
+
+```{r, out.width="100%"}
+rm(s1, s2, s3) #remove previous graphs from Global Environment
+
+
+s1 <- Shsat2017 %>% filter(NumSpecializedOffers !=0) %>% top_n(-20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=PctOffersPerStudent, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,20)) +
+        theme(legend.position="none", axis.text.y = element_text(size=8)) +
+        labs(x="", y="Percent offers", fill="%B/H") +
+        geom_label(aes(y = .1, label =NumSHSATTestTakers), hjust=0, size=3) +
+        geom_text(aes(label = paste(PctOffersPerStudent, "%")), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="yellow", high="brown", limits=c(0,100))
+
+s2 <- Shsat2017 %>% filter(NumSpecializedOffers !=0) %>% top_n(-20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=PctLevel4, fill=PctLevel4)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0, 100)) +
+        labs(x="", y="% Level4") +
+        geom_text(aes(label = paste0(PctLevel4, "%")), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="red", high="green", limits=c(0,100)) + theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+s3 <- Shsat2017 %>% filter(NumSpecializedOffers !=0) %>% top_n(-20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=AvgMark, fill=AvgMark)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,5.6)) +
+        labs(x="", y="AvgMark") +
+        geom_text(aes(label = AvgMark), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="red", high="green", limits=c(0,5)) + theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+
+grid.arrange(s1, s2, s3, widths=c(5,1,1), nrow=1, top=title2)
+
+```
+
+**Least successful of the schools with unknown success (0-5 Offers)**
+
+In total 416 schools had at least 6 SHSAT takers, and 0-5 offers. In order to determine which schools of this group had least success, I am working with the assumption that the maximum number of offers for those schools was 5. Therefore, **please be aware that these are the maximum SHSAT Success Rates**. The real Success rates of these schools can be anywhere between 0% and the percent displayed.
+
+Similar to the schools in the previous section, this list includes schools with decent numbers of SHSAT takers, but very little success. A very worrying observation is also that one of the biggest schools, the Leonardo da Vinci school (716 students) shows up here. The school had a low percentage of SHSAT takers (93 takers, 13%), and only 0-5 students received an offer!
+
+```{r, out.width="100%", warning=FALSE}
+rm(s1, s2, s3) #remove previous graphs from Global Environment
+
+Shsat05Offers <- Shsat2017 %>% filter(NumSHSATTestTakers !=0 & NumSpecializedOffers ==0)
+Shsat05Offers$NumSpecializedOffers <- 5
+Shsat05Offers$PctOffersPerStudent <- round((Shsat05Offers$NumSpecializedOffers/Shsat05Offers$NumSHSATTestTakers)*100)
+
+s1 <- Shsat05Offers %>% top_n(-20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=PctOffersPerStudent, fill=PctBlackOrHispanic)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,10)) +
+        theme(legend.position="none", axis.text.y = element_text(size=8)) +
+        labs(x="", y="Percent offers", fill="%B/H") +
+        geom_label(aes(y = .1, label =NumSHSATTestTakers), hjust=0, size=3) +
+        geom_text(aes(label = paste(PctOffersPerStudent, "%")), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="yellow", high="brown", limits=c(0,100))
+
+s2 <- Shsat05Offers %>% top_n(-20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=PctLevel4, fill=PctLevel4)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0, 100)) +
+        labs(x="", y="% Level4") +
+        geom_text(aes(label = paste0(PctLevel4, "%")), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="red", high="green", limits=c(0,100)) + theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+s3 <- Shsat05Offers %>% top_n(-20, wt=PctOffersPerStudent) %>%
+        ggplot(aes(x=reorder(SchoolName2, PctOffersPerStudent), y=AvgMark, fill=AvgMark)) +
+        geom_bar(stat='identity') + coord_flip(ylim=c(0,5.6)) +
+        labs(x="", y="AvgMark") +
+        geom_text(aes(label = AvgMark), size=3, hjust=-0.1) +
+        scale_fill_continuous(low="red", high="green", limits=c(0,5)) + theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+
+grid.arrange(s1, s2, s3, widths=c(5,1,1), nrow=1, top=title2)
+```
+
+#Which schools have too few SHSAT Takers?
+
+##Composing a model
+
+All students are eligible to take the SHSAT, but if you do so you should at least have some chance to also receive an offer (to not waste your time). Therefore, PASSNYC should try help schools with relatively few students taking the test when compared to the schools' performance metrics. In my opinion, these are simply the average marks, and percent level4 students. These measure the exact same thing that the SHSAT measures; how good are students at ELA and Math?
+
+I have also thought of including English Language Learners somehow. However, if an English Language Learner still manages to get good marks, there is no reason why the student should not take the test as special arrangements exist for these students (see section 3). Therefore, I kept my model as clean as possible and only considered the marks and level4 percentages.
+
+The highest correlation with the percentage of SHSAT takers by school is with the schools' Average Mark. The other marks en level4 variables also have high correlations with the percentage that did the SHSAT. However, since these are also all highly correlated with each other (multicolinearity), I will only use the one with the highest correlation with the percentage of SHSAT Takers.
+
+```{r}
+numericVars <- which(sapply(Shsat2017, is.numeric)) #index vector numeric variables
+ShsatNumVars <- Shsat2017[, numericVars] %>% filter(NumSHSATTestTakers >5)
+ShsatNumVars <- ShsatNumVars %>% select(PerDidSHSAT, AvgMark, PctLevel4, AvgELA, AvgMath, PctLevel4ELA, PctLevel4Math)
+corShsat <- cor(ShsatNumVars, use="pairwise.complete.obs")
+
+#sort on decreasing correlations with PerDidSHSAT
+corTook <- as.matrix(sort(corShsat[,'PerDidSHSAT'], decreasing = TRUE))
+namesTook <- rownames(corTook)
+corShsat <- corShsat[namesTook, namesTook]
+
+corrplot.mixed(corShsat, tl.col="black", tl.pos = "lt")
+```
+
+The graph below shows my Linear Regression model visually. The models is based on 530 schools (537 schools with at least 6 SHSAT takers, as SHSAT is unknow for category 0-5 takers. For 7 out of those 537 schools the AvgMark is missing).
+
+```{r}
+Shsat2017 %>% filter(NumSHSATTestTakers >5 & !is.na(Shsat2017$AvgMark)) %>%
+        ggplot(aes(x=AvgMark, y=PerDidSHSAT)) +
+        geom_point(col="blue")  + geom_smooth(method = "lm", se=TRUE, color="black", aes(group=1)) +
+        labs(x="Average School Mark", y="Percent of students taking the SHSAT")
+```
+
+Below, you can see the summary of my model. The formula is: "Modeled Percent SHSAT Takers"=-59 + 35 * AvgMark.
+
+Examples:
+
+* For a school with Average Mark 2.0, the Modeled Percent Takers=-59 + 35*2=11%
+* For a school with Average Mark 3.0, the Modeled Percent Takers=-59 + 35*3=46%
+* For a school with Average Mark 4.0, the Modeled Percent Takers=-59 + 35*4=81%
+
+In my opinion, this model makes a lot of sense. The marks of the individual students are likely normally distributed, around the Average School Mark, as the schools have many students in different classes (If I had more time and data, I would like to check this assumption!). However, even if this distribution is not entirely normal, all school will have "tails" with high and low marks. Even on a school with an average mark of only 2.0, there will some students with good marks who do have a realistic chance on the SHSAT. However, percentage wise this number will be smaller when compared to schools with high average marks.
+
+```{r}
+TakersModel <- lm(PerDidSHSAT ~ AvgMark, data=Shsat2017[Shsat2017$NumSHSATTestTakers>5 & !is.na(Shsat2017$AvgMark),])
+summary(TakersModel)
+```
+
+In the code below, I am making "predictions"" by school regarding the percent of student that could have taken the SHSAT according to the model ("Modeled Percent Takers""). In addition, I am creating the variable "Potential Extra Takers". This variable takes the difference between the Modeled Percent Takers and the (real) Percent SHSAT Takers, and this percentage is multiplied by the total number of Grade 8 students of each school.
+
+```{r}
+TakersPredictions <- predict(TakersModel, Shsat2017)
+Shsat2017$ModPctSHSAT <- round(TakersPredictions)
+
+Shsat2017$ModVsDid <- Shsat2017$ModPctSHSAT - Shsat2017$PerDidSHSAT
+Shsat2017$ExtraTakers <- round((Shsat2017$ModVsDid/100)*Shsat2017$Grade8)
+```
+
+Below, I am displaying the Top20 schools that are not sending enough students to the SHSAT when compared to their average marks. In section 11, I will "cross reference" this list with the districts that are underserved to come to my final recommendation for on which schools PASSNYC should focus on to increase the number of SHSAT takers (Recommendation 1). This recommendation only deals with the schools with at least 6 SHSAT Takers. In section 12 I will make a separate recommendation for the schools with 0-5 SHSAT Takers (Recommendation 3).
+
+```{r}
+kable(Shsat2017 %>% filter(NumSHSATTestTakers>5) %>% arrange(desc(ExtraTakers)) %>% top_n(20, wt=ExtraTakers) %>%
+        select(SchoolName2, Grade8, NumSHSATTestTakers, PerDidSHSAT, ModPctSHSAT, ExtraTakers, PctBlackOrHispanic) %>%
+              rename(School=SchoolName2, Students = Grade8, 'Percent Takers'=PerDidSHSAT, 'Modeled Percent Takers' =ModPctSHSAT, 'Potential Extra Takers' = ExtraTakers, 'Percent Black or Hispanic' = PctBlackOrHispanic, 'Takers' = NumSHSATTestTakers))
+```
+
+#Which schools are underperforming on SHSAT Success?
+
+##Analysis of "Level4" percentages versus SHSAT Success
+
+While doing the EDA, I noticed that there seemed to be a strong correlation between the percent SHSAT Succss and the percent level4 students. For instance, the most successful school, Christa McAuliffe, had 82% SHSAT Success and also 82% Level4 students. A quick check told me that the correlation between those two variables was very high indeed (0.86) for the 121 schools with at least 6 offers. I only selected those 121 schools to calculate this correlation, as I simply don't know the exact SHSAT Success for the remaining schools (0-5 offers).
+
+Before deciding on how to compose a model, I first wanted to do some extra exploratory data analysis.
+
+```{r}
+sumELA4s <- sum(Shsat2017$Grade7_ELA_All4s[Shsat2017$NumSpecializedOffers>5])
+sumELA <- sum(Shsat2017$Grade7_ELA_All[Shsat2017$NumSpecializedOffers>5])
+sumMath4s <- sum(Shsat2017$Grade7_Math_All4s[Shsat2017$NumSpecializedOffers>5])
+sumMath <- sum(Shsat2017$Grade7_Math_All[Shsat2017$NumSpecializedOffers>5])
+
+Per121 <- round((((sumELA4s/sumELA)+(sumMath4s/sumMath))/2)*100)
+
+cat(' On those 121 schools', sumELA4s, 'students (of', sumELA, 'students), had Level4 ELA (', round((sumELA4s/sumELA)*100), '%)', "\n", 'On those 121 schools', sumMath4s, 'students (of', sumMath, 'students), had Level4 Math (', round((sumMath4s/sumMath)*100), '%)', "\n", "The average of Level4 percentages ELA and Math was", Per121, '%')
+```
+
+```{r}
+sumTook <- sum(Shsat2017$NumSHSATTestTakers[Shsat2017$NumSpecializedOffers>5])
+sumOffers <- sum(Shsat2017$NumSpecializedOffers[Shsat2017$NumSpecializedOffers>5])
+cat(' On those 121 schools', sumTook, 'students took the SHSAT, and', sumOffers, 'students received an offer.', "\n", 'This means that the average SHSAT Success on those 121 schools was', round((sumOffers/sumTook)*100), '%.')
+```
+
+This also means that the remaining 472 schools with 0-5 offers had very little success! The roughly 10,000 SHSAT takers (25,000-15,000) cannot have had more than 1,000 offers (5,000 offers a year minus 4,000 that go to the 121 schools with at least 6 offers). Taking into account that some offers have also gone to Grade 9 students means that the SHSAT success for those remaining 10,000 SHSAT takers was less than 10%.
+
+
+##Composing a model
+
+I can only compose a model for the 121 schools that have at least 6 offers, as the "Percent offers per student that took the test" is simply unknown for the schools that received 0-5 offers (as the exact number is not given).
+
+Similar to the model that I made in regarding the SHSAT takers, I am making a simple linear model with only one predictor as all possible performance related predictors (mark and level4) are strongly correlated with each other (multicolinear). As I already expected the predictor with the highest correlation with the "Percent offers per student that took the SHSAT" is the "Percent level4 students in Grade 7"
+
+```{r}
+numericVars <- which(sapply(Shsat2017, is.numeric)) #index vector numeric variables
+ShsatNumVars <- Shsat2017[, numericVars] %>% filter(NumSpecializedOffers >5)
+ShsatNumVars <- ShsatNumVars %>% select(PctOffersPerStudent, AvgMark, PctLevel4, AvgELA, AvgMath, PctLevel4ELA, PctLevel4Math)
+corShsat <- cor(ShsatNumVars, use="pairwise.complete.obs")
+
+#sort on decreasing correlations with PerDidSHSAT
+corSuccess <- as.matrix(sort(corShsat[,'PctOffersPerStudent'], decreasing = TRUE))
+namesSuccess <- rownames(corSuccess)
+corShsat <- corShsat[namesSuccess, namesSuccess]
+
+corrplot.mixed(corShsat, tl.col="black", tl.pos = "lt")
+```
+
+My model is visualized in the figure below.
+
+```{r}
+Shsat2017 %>% filter(NumSpecializedOffers >5) %>%
+        ggplot(aes(x=PctLevel4, y=PctOffersPerStudent)) +
+        geom_point(col="blue")  + geom_smooth(method = "lm", se=TRUE, color="black", aes(group=1)) +
+        labs(x="Percent level4 students in Grade 7", y="Percent offers per student that took the SHSAT")
+```
+
+The coeficients of the model can be found below, and the model is:
+                                        "Percent Offers per student"=5.14 + 0.8*"Percent Level4"
+
+```{r}
+OffersModel <- lm(PctOffersPerStudent ~ PctLevel4, data=Shsat2017[Shsat2017$NumSpecializedOffers>5,])
+summary(OffersModel)
+```
+
+In the code below, I am making "predictions" by school regarding the percent of offers per student that is "fair" according to the model ("Modeled Percent Offers"). In addition, I am creating two new variables:
+
+* Fair Offers ("Modeled Percent Offers" * Number SHSAT Takers)
+* Extra Offers (Fair offers - (actual) Offers)
+
+
+```{r}
+OffersPredictions <- predict(OffersModel, Shsat2017)
+Shsat2017$ModPctOffers <- round(OffersPredictions)
+Shsat2017$OffersLM <- round(((Shsat2017$ModPctOffers)*Shsat2017$NumSHSATTestTakers)/100)
+Shsat2017$ExtraOffers <- Shsat2017$OffersLM-Shsat2017$NumSpecializedOffers
+```
+
+Note: I realize that the number of seat on the 8 high schools will remain at 5,000. Therefore, not all "Extra Offers" will in reality lead to an offer. I will make a correction for this in my final recommendation in section 11.
+
+###Applying the model on the feeder schools
+
+My initial thought was that PASSNYC should not look at these feeder school at all, as they already get most of the seats and most schools are in overperforming districts anyway. However, later on I realized that this was too simple. A quick check told me that 75 out of these 121 schools with at least 6 offers are located in overperforming districts indeed, but this also means that 46 of those schools are in under or averagely performing districts. My analysis of which districts are underperforming, averagely performing and overperforming can be found in sections 9 and 10. However, as so many of the 121 schools are in fact in overperforming districts, I "prefiltered" the table below to exclude schools in (9) overperforming districts. The table displays schools that should have received at least 10 Extra Offers according to the model in under and avergely performing districts only.
+
+```{r}
+kable(Shsat2017 %>% filter(NumSpecializedOffers>5 & !District %in% c(26, 15, 20, 3, 30, 21, 1, 2, 25) & ExtraOffers>=10) %>% select(SchoolName2, Grade8, NumSHSATTestTakers, Offers, ModPctOffers, OffersLM, ExtraOffers, PctBlackOrHispanic) %>% arrange(desc(ExtraOffers))  %>% rename(School=SchoolName2, Students=Grade8, Takers=NumSHSATTestTakers, 'Fair Offers' = OffersLM, 'Extra Offers' = ExtraOffers, 'Percent Black or Hispanic' = PctBlackOrHispanic, 'Modeled Percent Offers' = ModPctOffers))
+```
+
+###Applying the model on the 472 schools with 0-5 offers
+
+As explained before, the 121 schools with at least 6 offers had average SHSAT Success of 27%, which also means that the remainder of the schools cannot have had more than 10% SHSAT succes. This basically means that the model is invalid for those 472 schools with 0-5 offers. However, what I can do is make **the assumption that PASSNYC could manage to improve success rates for those schools by interventions to the levels achieved by this group of 121 schools.** If PASSNYC can take away underserving at those schools, it seems reasonable to assume that the model is also reasonable for the remaining 472 schools.
+
+Below, I have displayed the Top10 of schools in the category "0-5 Offers"" with the highest number of Fair Offers. However, I have not filtered this list on "underperforming districts" yet. My final recommendation can be found in section 11, where those schools are matched with underperforming school districts.
+
+```{r}
+kable(Shsat2017 %>% filter(NumSpecializedOffers==0) %>% select(SchoolName2, Grade8, NumSHSATTestTakers, Offers, ModPctOffers,  OffersLM, PctBlackOrHispanic) %>% arrange(desc(OffersLM)) %>% top_n(10, wt=OffersLM) %>% rename(School=SchoolName2, Students=Grade8, Takers=NumSHSATTestTakers, 'Fair Offers' = OffersLM, 'Percent Black or Hispanic' = PctBlackOrHispanic, 'Modeled Percent Offers' = ModPctOffers))
+```
+
+#A geographical analysis with interactive maps
+
+I am not American, and therefore not familiar with the "school districts" system. My main questions were answered in this informative article: [How does the School Zoning System work in New York City?](https://nycasas.com/resources/school-system-in-new-york.php). To me, the main takeaway was this: *Any child between the ages of 5 and 21 is entitled to free public education. A child can be assigned to a school within a zone that is based on the home address. * 
+
+This means that that children can only choose a school that is located in the district in which they live.
+
+##Preparing the map data.
+
+To make these maps, I am using the Shapefile with district boundaries from the City of New York ([GIS data: Boundaries of School Districts](https://data.cityofnewyork.us/Education/School-Districts/r8nu-ymqj/data)). I am using the `rgdal` package to load this file into R.
+
+```{r}
+districts <- readOGR(dsn = path4, layer = "geo_export_77909a75-b153-4be9-a09d-73e73c03bfe9")
+```
+
+This "large SpatialPolygonsDataFrame" also hold a dataframe that contains information that can be displayed on the Leaflet Maps. In the code below, I am joining information from the Shsat2017 dataframe and the schoolDistricts dataframe (The Kaggle [NYC School District Breakdowns](https://www.kaggle.com/new-york-city/nyc-school-district-breakdowns) dataset) with this dataframe, grouped by District.
+
+```{r}
+districts@data <- districts@data[-33,] #for some reason district 10 was in here twice
+
+DistrictShsat <- Shsat2017 %>% group_by(District) %>%
+        summarize(Total=sum(Grade8), Takers=sum(NumSHSATTestTakers), Offers=sum(NumSpecializedOffers), BlHisp=sum(TotalGrade8BlHisp)) %>%
+        mutate(PerAdmitted = round((Offers/Total)*100, digits=1),
+               PerTook = round((Takers/Total)*100, digits=1),
+               PerSuccess = round((Offers/Takers)*100, digits=1),
+               PerBlackHisp = round((BlHisp/Total)*100, digits=1))
+
+ToMap <- data.frame(District=districts$school_dis)
+
+ToMap <- left_join(ToMap, DistrictShsat, by=c("District"))
+ToMap <- left_join(ToMap, schoolDistricts %>% select(District, DistrictName), by="District")
+
+districts@data <- cbind(districts@data, ToMap[,2:10])
+
+districts$shape_leng <- NULL
+districts$shape_area <- NULL
+```
+
+##Percent of student population taking the SHSAT
+
+This map displays the "quantity problem" (districts where the percent of students taking the test is low).
+
+This percentage is very low in districts 6, 7 and 12. In addition, the percentage is also below the city average in the orange districts.
+
+```{r}
+cityAvgTakers <- sum(DistrictShsat$Takers)/sum(DistrictShsat$Total)
+cat("The city average of Grade 8 SHSAT takers is", cityAvgTakers)
+```
+
+Note: this 33.7% is a small underestimation, as this figure does not include the 0-5 SHSAT takers from 56 schools (probably 100-150 SHSAT takers).
+
+```{r, out.width="100%"}
+bins <- c(10, 20, 30, 40, 50, 60)
+pal <- colorBin(c("red", "orange", "yellow", "yellowgreen", "green"), domain = districts$PerTook, bins = bins)
+
+districtNumber <- paste("<strong>School district: </strong>", districts$school_dis, districts$DistrictName,
+                        "<br><strong>Total Grade 8 students: </strong>", districts$Total,
+                        "<br><strong>Total SHSAT takers: </strong>", districts$Takers,
+                        "<br><strong>Percent Takers: </strong>", districts$PerTook) %>% lapply(htmltools::HTML)
+
+leaflet(data=districts) %>%
+        addTiles() %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        addPolygons(
+                fillColor = ~pal(PerTook),
+                fillOpacity = 0.7,
+                weight=1,
+                label=districtNumber,
+                highlight = highlightOptions(
+                        weight=5,
+                        fillOpacity = 0.7,
+                        bringToFront = TRUE)) %>%
+        addLegend(pal = pal, values = ~PerTook, opacity = 0.7, title = "Percent takers", position = "bottomright")
+```
+**Hovering over the map shows a label with details on each school district, and you can also zoom in/out**
+
+##Percent of SHSAT takers receiving an offer from a specialized highschool (SHSAT Success)
+
+This map displays the "quality problem" (districts where SHSAT takers are underperforming on the test).
+
+What stands out for me is that there are 3 clusters of districts where SHSAT success is very low.
+
+```{r}
+cityAvgSuccess <- sum(DistrictShsat$Offers)/sum(DistrictShsat$Takers)
+cat("The city average of Grade 8 SHSAT success", cityAvgSuccess)
+```
+
+Note: this 15,8% is an underestimation, as it does not include the offers that schools with small numbers of offers receive (category 0-5 offers).
+
+```{r, out.width="100%"}
+bins <- c(0, 7, 14, 21, 28, 37)
+pal <- colorBin(c("red", "orange", "yellow", "yellowgreen", "green"), domain = districts$PerSuccess, bins = bins)
+
+districtNumber <- paste("<strong>School district: </strong>", districts$school_dis, districts$DistrictName,
+                        "<br><strong>Total SHSAT takers: </strong>", districts$Takers,
+                        "<br><strong>Total Offers: </strong>", districts$Offers,
+                        "<br><strong>Percent Success: </strong>", districts$PerSuccess) %>% lapply(htmltools::HTML)
+
+leaflet(data=districts) %>%
+        addTiles() %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        addPolygons(
+                fillColor = ~pal(PerSuccess),
+                fillOpacity = 0.7,
+                weight=1,
+                label=districtNumber,
+                highlight = highlightOptions(
+                        weight=5,
+                        fillOpacity = 0.7,
+                        bringToFront = TRUE)) %>%
+        addLegend(pal = pal, values = ~PerSuccess, opacity = 0.7, title = "Percent SHSAT success", position = "bottomright")
+```
+**Hovering over the map shows a label with details on each school district, and you can also zoom in/out**
+
+##Mapping the underperforming districts (based on percent of student population receiving an offer)
+
+This map displays the "total problem": the percent of the total (Grade 8) student population ending up on one of the specialized high schools (assuming that students always accept an offer if they get one).
+
+Example of how this map works:
+
+* In District 5, there were 1699 students on schools in Grade 8.
+* Of those students, 401 students took the SHSAT
+* This resulted in 23 students with an offer from one of the specialized high schools
+* Altogether, 23 out of 1699 students ended up with an offer (23/1699= 1.4%)
+
+```{r}
+cityAvgPopulation <- sum(DistrictShsat$Offers)/sum(DistrictShsat$Total)
+cat("The city average of Grade 8 students ending up on a specialized highschool is", cityAvgPopulation)
+```
+
+Note: again this is small overall underestimation, mostly because the numbers do not include the offers that schools with small numbers of offers receive (category 0-5 offers). However, the percentage is still close to the overall figure of 6% mentioned by PASSNYC.
+
+We can see 2 clusters of districts where almost no students (0-1%) end up on a specialized high school, and also see that Queens 29 is underperforming.
+
+```{r, out.width="100%"}
+bins <- c(0, 1, 5, 10, 15, 20)
+pal <- colorBin(c("red", "orange", "yellow", "yellowgreen", "green"), domain = districts$PerAdmitted, bins = bins)
+
+districtNumber <- paste("<strong>School district: </strong>", districts$school_dis, districts$DistrictName,
+                        "<br><strong>Total Grade 8 students: </strong>", districts$Total,
+                        "<br><strong>Total SHSAT takers: </strong>", districts$Takers,
+                        "<br><strong>Total Offers: </strong>", districts$Offers,
+                        "<br><strong>Percent Admitted (Total Offers/Total Grade 8): </strong>", districts$PerAdmitted) %>% lapply(htmltools::HTML)
+
+leaflet(data=districts) %>%
+        addTiles() %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        addPolygons(
+                fillColor = ~pal(PerAdmitted),
+                fillOpacity = 0.7,
+                weight=1,
+                label=districtNumber,
+                highlight = highlightOptions(
+                        weight=5,
+                        fillOpacity = 0.7,
+                        bringToFront = TRUE)) %>%
+        addLegend(pal = pal, values = ~PerAdmitted, opacity = 0.7, title = "Percent admitted", position = "bottomright")
+```
+**Hovering over the map shows a label with details on each school district, and you can also zoom in/out**
+
+##How do the underperforming districts match with districts that are predominantly Black/Hispanic
+
+As you can see below, when comparing that map to the map in the previous section, you can see a high correlation. Most underperforming district (red or orange in the previous section) have a high percentage of Black/Hispanic students.
+
+```{r, out.width="100%"}
+bins <- c(20, 40, 60, 80, 100)
+pal <- colorBin(c("yellow", "yellow3", "tan3", "tan4"), domain = districts$PerBlackHisp, bins = bins)
+
+districtNumber <- paste("<strong>School district: </strong>", districts$school_dis, districts$DistrictName,
+                        "<br><strong>Percent SHSAT takers: </strong>", districts$PerTook,
+                        "<br><strong>Percent SHSAT Success: </strong>", districts$PerSuccess,
+                        "<br><strong>Percent Black/Hispanic: </strong>", districts$PerBlackHisp) %>% lapply(htmltools::HTML)
+
+leaflet(data=districts) %>%
+        addTiles() %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        addPolygons(
+                fillColor = ~pal(PerBlackHisp),
+                fillOpacity = 0.7,
+                weight=1,
+                label=districtNumber,
+                highlight = highlightOptions(
+                        weight=5,
+                        fillOpacity = 0.7,
+                        bringToFront = TRUE)) %>%
+        addLegend(pal = pal, values = ~PerBlackHisp, opacity = 0.7, title = "Percent Black/Hispanic", position = "bottomright")
+```
+**Hovering over the map shows a label with details on each school district, and you can also zoom in/out**
+
+#Recommendation 1: schools that are underperforming on SHSAT Takers in the underperforming districts
+
+Below, I have displayed the schools that I identified in section 7 on a map of underperforming district. The colors are based on the same data that I used in section 9.4. However, I have used some more consolidated categories to make the map easier to read. These are:
+
+* The red districts are the underperforming districts
+* The green districts are overperforming (which is probably a bad term, but easy to understand ;-))
+* The yellow districts are averagely performing
+
+Of the schools identified in section 7, I am only selecting the schools in the underperforming and averagely performing districts, as the overperforming districts are clearly not what PASSNYC wants to spend its resources on. Also, I have only displayed schools for which the Linear Regression Model predicted at least 20 Potential Extra Takers.
+
+* 18 schools with at least 20 Potential Extra takers are in underperforming districts. Sum Potential Extra Takers is 533.
+* 15 schools with at least 20 Potential Extra Takers are in averagely performing districts. Sum Potential Extra Takers is 658.
+
+```{r}
+ToMap$OverUnder[ToMap$PerAdmitted<3] <- "Under"
+ToMap$OverUnder[ToMap$PerAdmitted>=3 & ToMap$PerAdmitted<7] <- "Neutral"
+ToMap$OverUnder[ToMap$PerAdmitted>=7] <- "Over"
+
+Shsat2017 <- left_join(Shsat2017, ToMap %>% select(District, OverUnder), by="District")
+```
+
+```{r, out.width="100%", fig.height=8}
+SchoolsToDisplay <- Shsat2017 %>% filter(NumSHSATTestTakers>5 & OverUnder !="Over" & ExtraTakers>=20)
+
+bins <- c(0, 3, 7, 20)
+pal <- colorBin(c("red", "yellow", "green"), domain = districts$PerAdmitted, bins = bins)
+
+labels <- paste("<strong>School: </strong>", SchoolsToDisplay$SchoolName2,
+                "<br><strong> Grade 8 Students: </strong>", SchoolsToDisplay$Grade8,
+                "<br><strong>Takers: </strong>", SchoolsToDisplay$NumSHSATTestTakers,
+                "<br><strong>Percent Takers: </strong>", SchoolsToDisplay$PerDidSHSAT,
+                "<br><strong>Potential Extra Takers: </strong>", SchoolsToDisplay$ExtraTakers,
+                "<br><strong>Percent Black/Hispanic: </strong>", SchoolsToDisplay$PctBlackOrHispanic) %>% lapply(htmltools::HTML)
+
+leaflet(data=districts) %>%
+        addTiles() %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        setView(-73.935242, 40.730610, zoom = 11) %>%
+        addPolygons(
+                fillColor = ~pal(PerAdmitted),
+                fillOpacity = 0.7,
+                weight=1
+                ) %>%
+        addLegend(pal = pal, values = ~PerAdmitted, opacity = 0.7, title = "Percent Admitted", position = "bottomright") %>%
+        addMarkers(data=SchoolsToDisplay, ~Longitude, ~Latitude, label=labels)
+```
+
+**Hovering over the markers shows a label with details by school, and you can also zoom in/out**
+
+As the cut-off point of schools with at least 20 Potential Extra Takers is a bit arbitrary, the table below shows 83 schools with at least 10 Potential Extra Takers in under or averagely performing districts. I recommend PASSNYC to take on the number of schools that it can handle with its resources. The table is ordered from largest to smallest opportunity, but I can also imagine that PASSNYC would primarily focus on schools in the underperforming districts only. In addition, PASSNYC could help a few schools that are not doing well individually in averagely performing districts.
+
+```{r}
+SchoolsToDisplay <- Shsat2017 %>% filter(NumSHSATTestTakers>5 & OverUnder !="Over" & ExtraTakers>=10) %>% arrange(desc(ExtraTakers)) %>%
+                select(SchoolName2, Grade8, NumSHSATTestTakers, PerDidSHSAT, ModPctSHSAT, ExtraTakers, OverUnder, PctBlackOrHispanic) %>%
+              rename(School=SchoolName2, Students = Grade8, 'Percent Takers'=PerDidSHSAT, 'Modeled Percent Takers' =ModPctSHSAT, 'Potential Extra Takers' = ExtraTakers, 'Percent Black or Hispanic' = PctBlackOrHispanic, 'Takers' = NumSHSATTestTakers, 'District Performance'=OverUnder)
+
+
+SchoolsToDisplay %>% DT::datatable(options = list(pageLength = 10, autoWidth = TRUE,
+  columnDefs = list(list(width = '700px', targets = 1))))
+```
+
+
+#Recommendation 2: schools that are underperforming on SHSAT Success in the underperforming districts
+
+For this recommendation, I am using the same map that I used in the previous section. However, this time I am mapping the schools that I identified in section 8.
+
+Again, I am only selecting the schools in the underperforming and averagely performing districts. In addition, I have only selected schools for which the Linear Regression model predicted at least 10 Fair Offers for the "0-5 offers" category, or at least 10 Extra Offers for the "at least 6 offers category".
+
+* 19 schools with 0-5 offers and at least 10 Fair Offers are in underperforming districts. Sum Fair Offers is 260.
+* 4 schools with 0-5 offers and at least 10 Fair Offers are in averagely performing districts. Sum Fair Offers is 46.
+* 4 schools with >6 offers and at least 10 Extra Offers in underperforming districts. Sum Extra Offers is 76.
+* 6 schools with >6 offers and at least 10 Extra Offers in averagely performing districts. Sum Extra Offers is 109.
+
+```{r, out.width="100%", fig.height=7.5}
+SchoolsToDisplay <- Shsat2017 %>% filter((NumSpecializedOffers==0 & OffersLM>=10 & OverUnder !="Over")|(NumSpecializedOffers>5 & OverUnder !="Over" & ExtraOffers>=10))
+
+bins <- c(0, 3, 7, 20)
+pal <- colorBin(c("red", "yellow", "green"), domain = districts$PerAdmitted, bins = bins)
+
+labels <- paste("<strong>School: </strong>", SchoolsToDisplay$SchoolName2,
+                "<br><strong>Grade 8 Students: </strong>", SchoolsToDisplay$Grade8,
+                "<br><strong>Takers: </strong>", SchoolsToDisplay$NumSHSATTestTakers,
+                "<br><strong>Offers: </strong>", SchoolsToDisplay$Offers,
+                "<br><strong>Fair Offers: </strong>", SchoolsToDisplay$OffersLM,
+                "<br><strong>Percent Black/Hispanic: </strong>", SchoolsToDisplay$PctBlackOrHispanic) %>% lapply(htmltools::HTML)
+
+leaflet(data=districts) %>%
+        addTiles() %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        setView(-73.935242, 40.730610, zoom = 11) %>%
+        addPolygons(
+                fillColor = ~pal(PerAdmitted),
+                fillOpacity = 0.7,
+                weight=1
+                ) %>%
+        addLegend(pal = pal, values = ~PerAdmitted, opacity = 0.7, title = "Percent Admitted", position = "bottomright") %>%
+        addMarkers(data=SchoolsToDisplay, ~Longitude, ~Latitude, label=labels)
+```
+
+**Hovering over the markers shows a label with details by school, and you can also zoom in/out**
+
+Note: Two schools are on exactly the same location: ACHIEVEMENT FIRST BUSHWICK CHARTER SCHOOL and J.H.S. 383 PHILIPPA SCHUYLER. I assume this means two schools in one building.
+
+Although these numbers may not seem very high if we look at it by school, it altogether adds up to a significant number. The total of the numbers of Extra Offers (from the schools with at least 6 offers), and Fair Offers (for the schools with 0-5 offers) is 491. It is not unreasonable to assume that the 23 schools with 0-5 offers received about 2 offers each. Therefore **the total estimated numbers of extra offers is 445 (491-46).**
+
+I realize that the numbers of seats on the specialized highschool stays the same. Therefore, I need to make a small correction downwards to 408 (445*(5000/5445)). This is actually 8.2% of the available seats, with all students coming from mostly underperforming districts.
+
+Note: **please be aware that recommendation 1 and recommendation 2 can be complementary to each other.** For instance, the large Leonardo da Vinci is in both lists. Its number of SHSAT Takers was 93, and it received 0-5 offers. Its potential extra takers is 86, and its fair number of offers is 9. If PASSNYC manages to let these 86 extra students take the test, and also manages to let the school get its fair share of offers, the number of fair offers for this school increases to 18 (based on 179 test takers).
+
+The same information that is displayed on the map, can also be found in the two tables below.
+
+The first table is the table with the schools with 0-5 offers. I sorted the schools on descending Fair Offers. The schools with at least 10 Fair Offers are also displayed on the map, but PASSNYC can find more schools with 6-9 Fair Offers in the table.
+
+```{r}
+SchoolsToDisplay <- Shsat2017 %>% filter(NumSpecializedOffers==0 & OverUnder !="Over" & OffersLM>5) %>% select(SchoolName2, Grade8, NumSHSATTestTakers, Offers, ModPctOffers, OffersLM, OverUnder, PctBlackOrHispanic) %>% arrange(desc(OffersLM)) %>% rename(School=SchoolName2, Students=Grade8, Takers=NumSHSATTestTakers, 'Fair Offers' = OffersLM, 'District Performance'=OverUnder, 'Percent Black or Hispanic' = PctBlackOrHispanic, 'Modeled Percent Offers' = ModPctOffers)
+
+SchoolsToDisplay %>% DT::datatable(options = list(pageLength = 12, autoWidth = TRUE,
+  columnDefs = list(list(width = '700px', targets = 1))))
+```
+
+The second table is the table with the schools with at least 6 offers. This time, I sorted the schools on descending Extra Offers. The first 10 schools are also displayed on the map, and I added 12 additional schools with 6-9 Extra Offers.
+
+```{r}
+SchoolsToDisplay <- Shsat2017 %>% filter(NumSpecializedOffers>5 & OverUnder != "Over" & ExtraOffers>=5) %>% select(SchoolName2, Grade8, NumSHSATTestTakers, Offers, ModPctOffers , OffersLM, ExtraOffers, OverUnder, PctBlackOrHispanic) %>% arrange(desc(ExtraOffers))  %>% rename(School=SchoolName2, Students=Grade8, Takers=NumSHSATTestTakers, 'Fair Offers' = OffersLM, 'Extra Offers' = ExtraOffers, 'Percent Black or Hispanic' = PctBlackOrHispanic, 'District Performance'=OverUnder, 'Modeled Percent Offers' = ModPctOffers)
+
+SchoolsToDisplay %>% DT::datatable(options = list(pageLength = 12, autoWidth = TRUE,
+  columnDefs = list(list(width = '700px', targets = 1))))
+```
+
+#Recommendation 3: schools with hardly any SHSAT Takers
+
+The 56 schools that I indentified in section 6.5.1.2 (Schools with almost no SHSAT takers (0-5 test takers)) have not been dealt with yet in the first 2 recommendations. The number of SHSAT Takers is just really low, and SHSAT Success is simply unknown (both the number of SHSAT Takers and the numbers of offers that the schools received were 0-5).
+
+As the average school marks are also really low for most of those schools, it seems likely that there is a culture on those schools that avoids the SHSAT ("we have no chance anyway"). However, my analysis shows that even on those schools there are Level4 students. My recommendation to PASSNYC is to take an individual approach for those students, rather than a school-wise approach. If PASSNYC manages to identify those students, and invites them to a third party location, these students form a decent sized group of bright students that can be motivated to take the SHSAT. In addition, there might be a spin-off in upcoming years if those students actually manage to receive offers.
+
+The interactive table below displays the schools with 0-5 SHSAT Takers, ranked on descending a decending average of Level4 ELA and Level4 Math. Similar to the previous recommendations, I only included schools that are located in under or averagely performing districts (12 schools are actually in overperforming districts). Of those 44 schools, 35 had at least one Level4 result. The total number of students with a Level4 ELA for those 35 schools was 63, and the total number of Level4 Math results was 29.
+
+```{r}
+SchoolsToDisplay <- Shsat2017 %>% filter(NumSHSATTestTakers==0 & OverUnder != "Over") %>% select(SchoolName2, AvgMark, Grade8, Grade7_ELA_All4s, Grade7_Math_All4s, AvgLevel4, OverUnder, PctBlackOrHispanic) %>% arrange(desc(AvgLevel4)) %>% rename(School=SchoolName2, Students=Grade8, 'Average Mark' = AvgMark, 'Level4 ELA' = Grade7_ELA_All4s, 'Level4 Math' = Grade7_Math_All4s,'District Performance'=OverUnder, 'Percent Black or Hispanic' = PctBlackOrHispanic)
+
+SchoolsToDisplay %>% DT::datatable(options = list(pageLength = 12, autoWidth = TRUE,
+  columnDefs = list(list(width = '700px', targets = 1))))
+```

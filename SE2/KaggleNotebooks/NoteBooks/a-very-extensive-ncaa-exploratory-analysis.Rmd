@@ -1,0 +1,370 @@
+---
+title: "A Very Extensive NCAA Exploratory Analysis"
+author: "Troy Walters"
+date: "February 20, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Table of Contents
+
+* [Introduction](#intro)
+* [Libraries](#libraries)
+* [Data Overview](#overview)
+* [Most Winning Teams](#winning)
+* [Predictors of Tournament Success](#predictors)
+
+
+## Introduction {#intro}
+
+Although I am not a huge college basketball fan, I find this particular data set fascinating in its richness. Let's dig in and see what we can learn about the history of March Madness. Hopefully along the way, I'll discover something useful to use in your models. 
+
+## Libraries {#libraries}
+
+```{r, message = FALSE}
+
+library(data.table)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(gridExtra)
+library(ggExtra)
+
+theme_set(theme_bw())
+
+```
+
+```{r}
+
+# Data Section 1
+teams <- fread('../input/Teams.csv')
+seasons <- fread('../input/Seasons.csv')
+seeds <- fread('../input/NCAATourneySeeds.csv')
+seas_results <- fread('../input/RegularSeasonCompactResults.csv')
+tour_results <- fread('../input/NCAATourneyCompactResults.csv')
+seas_detail <- fread('../input/RegularSeasonDetailedResults.csv')
+tour_detail <- fread('../input/NCAATourneyDetailedResults.csv')
+conferences <- fread('../input/Conferences.csv')
+team_conferences <- fread('../input/TeamConferences.csv')
+coaches <- fread('../input/TeamCoaches.csv')
+
+```
+    
+## Data Overview
+    
+```{r}
+    
+glimpse(teams)
+glimpse(seasons)
+glimpse(seeds)
+glimpse(seas_results)
+glimpse(tour_results)
+glimpse(seas_detail)
+glimpse(tour_detail)
+glimpse(conferences)
+glimpse(team_conferences)
+glimpse(coaches)
+    
+```
+    
+## Most Winning Teams {#winning}
+    
+What have been the most successful teams since 1985? We'll attempt to determine this with the metrics: regular season wins, number 1 seeds, tournament wins, and championships. 
+    
+```{r, fig.width = 10, fig.height = 7}
+    
+setkey(teams, TeamID)
+setkey(seeds, TeamID)
+
+g1 <-
+    teams[seeds][, one_seed := as.numeric(substr(Seed, 2, 3)) == 1][, sum(one_seed), by = TeamName][order(V1, decreasing = T)][1:15,] %>%
+    ggplot(aes(x = reorder(TeamName, V1), y = V1)) +
+    geom_bar(stat = 'identity', fill = 'darkblue') +
+    labs(x = '', y = 'No 1 seeds', title = 'No. 1 Seeds since 1985') +
+    coord_flip()
+
+setkey(seas_results, WTeamID)
+
+g2 <-
+    seas_results[teams][, .(wins = .N), by = TeamName][order(-wins)][1:15,] %>%
+    ggplot(aes(x = reorder(TeamName, wins), y = wins)) +
+    geom_bar(stat = 'identity', fill = 'darkblue') +
+    labs(x = '', y = 'Wins', title = 'Regular Season Wins since 1985') +
+    coord_flip()
+
+setkey(tour_results, WTeamID)
+
+g3 <-
+    tour_results[teams][, .(wins = .N), by = TeamName][order(-wins)][1:15,] %>%
+    ggplot(aes(x = reorder(TeamName, wins), y = wins)) +
+    geom_bar(stat = 'identity', fill = 'darkblue') +
+    labs(x = '', y = 'Wins', title = 'Tournament Wins since 1985') +
+    coord_flip()
+
+g4 <-
+    tour_results[teams][DayNum == 154, .(wins = .N), by = TeamName][order(-wins)][1:15,] %>%
+    ggplot(aes(x = reorder(TeamName, wins), y = wins)) +
+    geom_bar(stat = 'identity', fill = 'darkblue') +
+    labs(x = '', y = 'Championships', title = 'Tournament Championships since 1985') +
+    coord_flip()
+
+grid.arrange(g1, g2, g3, g4, nrow = 2)
+    
+```
+    
+What about conferences? Which conferences have produced the most championships since 1985?
+    
+```{r}
+    
+tour_results[team_conferences, on = c(WTeamID = 'TeamID', 'Season'), nomatch = 0
+             ][DayNum == 154, .(ConfAbbrev, wins = .N), by = ConfAbbrev
+               ][conferences, on = 'ConfAbbrev', nomatch = 0] %>%
+    ggplot(aes(x = reorder(Description, wins), y = wins)) + 
+    geom_bar(
+        stat = 'identity', 
+        fill = 'darkblue') + 
+    labs(
+        x = '', 
+        y = 'Wins', 
+        title = 'NCAA Championships by Conference (1985-2017)') + 
+    scale_y_continuous(breaks = c(1:10)) + 
+    coord_flip()
+    
+```
+    
+    
+    
+## Predictors of Tournament Success {#predictors}
+    
+One of the obvious predictors for how deep a team goes in the tournament would be regular season wins. Let's see how regular season wins correlate to tournament progress each year. 
+    
+```{r, fig.width = 10, fig.height = 10}
+    
+wins_s <- seas_results[, .(rsW = .N), by = c('WTeamID', 'Season')]
+
+wins_t <- tour_results[, .(tW = .N), by = c('WTeamID', 'Season')]
+
+
+wins_teams <- wins_s[wins_t][teams]
+
+wins_teams[!is.na(Season), ] %>%
+    ggplot(aes(x = rsW, y = tW)) + 
+    geom_point() + 
+    geom_smooth(method = 'lm') + 
+    facet_wrap( ~ as.factor(Season)) + 
+    labs(
+        x = 'Regular season wins', 
+        y = 'Tournament wins', 
+        title = 'Tournament Wins by Regular Season Wins')
+    
+```
+    
+In nearly every year, tournament wins is positively correlated with regular season wins. Of course, there are some exceptions - for example in 2000, the relationship is slightly negative! Single-elimination tournaments produce some variations as they leave little room for error. Sometimes strong favorites don't get as far as expected. 
+    
+The problem with using regular season wins is that in college basketball, not every team plays the same number of games in a regular season. Let's do something similar to see if average scores during regular season are associated with better tournament progress. 
+    
+```{r, fig.width = 10, fig.height = 10}
+
+wins <- seas_results[, .(n_games = .N, sum_score = sum(WScore)), by = c('WTeamID', 'Season')]
+
+losses <- seas_results[, .(n_games = .N, sum_score = sum(LScore)), by = c('LTeamID', 'Season')]
+
+all_games <- rbindlist(list(wins, losses))
+
+all_games <- all_games[, .(rs_ppg = sum(sum_score) / sum(n_games)), by = c('WTeamID', 'Season')]
+
+all_games[wins_t, on = c('WTeamID', 'Season')] %>%
+    ggplot(aes(x = rs_ppg, y = tW)) + 
+    geom_point() + 
+    geom_smooth(method = 'lm') + 
+    facet_wrap( ~ as.factor(Season)) + 
+    labs(
+        x = 'Regular season average score', 
+        y = 'Tournament wins', 
+        title = 'Tournament Wins by Regular Season Point per Game')
+
+```
+    
+We can see that in each year, there is a positive relationship between regular season points per game and tournament wins. We can also see that the champion each year (as indicated by the point with 6 tournament wins) tends to have a ppg near the top of the range. There also appears to be an outlier. In 1990 there is a team that scored more than 120 points per game! It turns out this is not a bad data point. In 1990 Loyola Marymount was the highest scoring team in Division 1 history with [122 points per game!](https://en.wikipedia.org/wiki/Loyola_Marymount_Lions_men%27s_basketball)
+    
+Of course, going into the tournament, we know a team's seed. How well do seeds predict tournament progress?
+    
+```{r, fig.width = 10, fig.height = 10}
+
+seeds[, .(Season, WTeamID = TeamID, seed_num = as.numeric(substr(Seed, 2, 3)))
+      ][wins_t, on = c('Season', 'WTeamID')] %>%
+    ggplot(aes(x = seed_num, y = tW)) + 
+    geom_jitter(width = 0.2, height = 0.2) + 
+    geom_smooth(method = 'lm') + 
+    labs(
+        x = 'Seed', 
+        y = 'Tournament Wins', 
+        title = 'Tournament Wins by Seed')
+
+```
+    
+I've introduced some jiter to this plot to avoid overplotting. It exhibits a strong negative relationship between seed and tournament progress - the lower a team's seed, the deeper they go into the tournament (as measured by tournament wins). We see that a 16 seed has never one more than one game (i.e. made it to the Sweet Sixteen). From the plot we can also determine that the lowest seed to ever with the tournament was a number 8. A vast majority of teams that have won the tournament since 1985 have been number 1 seeds. 
+    
+We may also wonder how likely it is that a better-seeded (i.e. lower number) team will win any particular tournament matchup. Let's look at the percentage of times the better-seeded team won by season. 
+    
+```{r, fig.width = 10}
+    
+tour_results_seeds <- seeds[, .(Season, WTeamID = TeamID, winner_seed = as.numeric(substr(Seed, 2, 3)))
+                            ][tour_results, on = c('Season', 'WTeamID')
+                              ][seeds[, .(Season, LTeamID = TeamID, loser_seed = as.numeric(substr(Seed, 2, 3)))
+                                      ], on = c('Season', 'LTeamID')]
+
+
+
+tour_results_seeds[, .(Season, low_seed_win = ifelse(winner_seed < loser_seed, 1, 0))
+                   ][, sum(low_seed_win, na.rm = TRUE) / .N, by = Season] %>%
+    ggplot(aes(x = reorder(Season, -V1), y = V1)) + 
+    geom_point(color = 'darkblue', size = 2) + 
+    labs(
+        x = '', 
+        y = '% of games in which better-seeded team won', 
+        title = 'Better-seed winning percentage by year') + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+    
+When examining these data by season, we see that the better-seeded team won games at a rate that varies between 0.79 in the 2007 tournament to approximately 0.59 in the 1999 tournament. 
+    
+    
+Now let's examine the relationship between a team's regular season win margin and its tournament performance. 
+    
+```{r, fig.width = 10, fig.height = 10}
+    
+seas_results[, .(avg_win_marg = mean(WScore - LScore)), by = c('WTeamID', 'Season')][wins_t, on = c('WTeamID', 'Season')] %>%
+    ggplot(aes(x = avg_win_marg, y = tW)) + 
+    geom_point() + 
+    geom_smooth(method = 'lm') +
+    labs(
+        x = 'Average regular season win margin', 
+        y = 'Tournament wins', 
+        title = 'Tournament Wins by Regular Season Win Margin') + 
+    facet_wrap(~Season) 
+```
+    
+Now let's move beyond the basic stats and use some of the box score data as well. To start, let's create a standardized data frame in wide format with all of the teams regular season stats. We'll create some additional statistics such as various shooting percentages, rebounds per game, steals per game, etc. Because of the format of the data, we first need to get the stats for the games winning teams and losing teams seperately. Then we will bind these row-wise and group by Season and TeamID to calculate the stats. 
+    
+```{r, fig.height = 5, fig.width = 10}
+    
+win_stats <- seas_detail[, .(
+    Season,
+    TeamID = WTeamID,
+    FGM = WFGM,
+    FGA = WFGA,
+    FGM3 = WFGM3,
+    FGA3 = WFGA3,
+    FTM = WFTM,
+    FTA = WFTA,
+    OR = WOR,
+    DR = WDR
+    )]
+
+los_stats <- seas_detail[, .(
+    Season,
+    TeamID = LTeamID,
+    FGM = LFGM,
+    FGA = LFGA,
+    FGM3 = LFGM3,
+    FGA3 = LFGA3,
+    FTM = LFTM,
+    FTA = LFTA,
+    OR = LOR,
+    DR = WDR
+    )]
+
+stats_all <- rbindlist(list(win_stats, los_stats))[, .(
+    FGP = sum(FGM) / sum(FGA),
+    FGP3 = sum(FGM3) / sum(FGA3),
+    FTP = sum(FTM) / sum(FTA),
+    ORPG = sum(OR) / .N,
+    DRPG = sum(DR) / .N)
+    , by = c('TeamID', 'Season')]
+
+```
+
+Can we use a team's regular season game statistics to predict tournament success. First let's look at field goal % and free throw % during the regular season and see if these equate to tournament success. We'll define success in the case as making the Final Four. 
+
+```{r, fig.width = 10}
+
+g1 <- stats_all[wins_t, on = c(TeamID = 'WTeamID', 'Season'), nomatch = 0
+              ][, final_four := tW >= 4] %>%
+    ggplot(aes(x = FGP, y = FTP, color = final_four)) + 
+    geom_point(alpha = 0.6) +
+    labs(
+        x = 'Field goal %', 
+        y = 'Free throw %', 
+        title = 'Regular Season Shooting Performance of Tournament Teams') +
+    scale_color_manual(values = c('darkgrey', 'steelblue'))
+
+ggMarginal(g1, type = 'histogram', fill = 'steelblue')
+
+```
+
+We see that the distribution of field goal % appears to have a peak around 0.45. The distribution of free throw percentage peaks near 72%. Interestingly in terms of shooting %, there does not seem to be much of a difference between teams that make the Final Four and the rest of the tournament field in terms of their regular season performance; however it is hard to tell from this plot type. To double-check, let's plot the densities of these two statistics for Final Four teams and the rest of the field.
+
+```{r, fig.width = 10}
+
+g2 <- stats_all[wins_t, on = c(TeamID = 'WTeamID', 'Season'), nomatch = 0
+              ][, final_four := tW >= 4] %>%
+    ggplot(aes(x = FGP, fill = final_four)) + 
+    geom_density(alpha = 0.6) + 
+    labs(x = 'Field goal %', title = 'Regular Season Field Goal % of Tournament Teams')
+
+g3 <- stats_all[wins_t, on = c(TeamID = 'WTeamID', 'Season'), nomatch = 0
+              ][, final_four := tW >= 4] %>%
+    ggplot(aes(x = FTP, fill = final_four)) + 
+    geom_density(alpha = 0.6) + 
+    labs(x = 'Free throw %', title = 'Regular Season Free Throw % of Tournament Teams')
+
+grid.arrange(g2, g3, ncol = 2)
+
+```
+
+From the density plots, it actually appears that Final Four teams do shoot better from the floor during the regular season. Non Final Four teams shoot around 0.45 during the regular season and Final Four teams seem to shoot around 0.475. It is very important to keep in mind however that the sample size for Final Four teams is much smaller than the sample size for the rest of the tournament field. Therefore its unclear whether we can consider this difference statistically significant. For free throw percentage, there does not appear to be much of a difference. 
+
+Now let's do the same thing for rebounding performance. 
+
+```{r, fig.width = 10}
+
+g2 <- stats_all[wins_t, on = c(TeamID = 'WTeamID', 'Season'), nomatch = 0
+              ][, final_four := tW >= 4] %>%
+    ggplot(aes(x = DRPG, y = ORPG, color = final_four)) + 
+    geom_point(alpha = 0.6) +
+    labs(
+        x = 'Defensive rebounds per game', 
+        y = 'Offensive rebounds per game', 
+        title = 'Regular Season Rebounding Performance of Tournament Teams') +
+    scale_color_manual(values = c('darkgrey', 'steelblue')) 
+
+ggMarginal(g2, type = 'histogram', fill = 'steelblue')
+
+    
+```
+
+
+```{r, fig.width = 10}
+
+g1 <- stats_all[wins_t, on = c(TeamID = 'WTeamID', 'Season'), nomatch = 0
+              ][, final_four := tW >= 4] %>%
+    ggplot(aes(x = DRPG, fill = final_four)) + 
+    geom_density(alpha = 0.6) + 
+    labs(x = 'Defensive rebounds per game', title = 'Regular Season Rebounding of Tournament Teams')
+
+g2 <- stats_all[wins_t, on = c(TeamID = 'WTeamID', 'Season'), nomatch = 0
+              ][, final_four := tW >= 4] %>%
+    ggplot(aes(x = ORPG, fill = final_four)) + 
+    geom_density(alpha = 0.6) + 
+    labs(x = 'Offensive rebounds per game')
+
+grid.arrange(g1, g2, ncol = 2)
+
+```
+
+

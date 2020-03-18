@@ -1,0 +1,470 @@
+---
+title: "F1 data analysis"
+author: "Jonathan Bouchet"
+date: "`r Sys.Date()`"
+output:
+ html_document:
+    fig_width: 10
+    fig_height: 7
+    toc: yes
+    number_sections : yes
+    code_folding: show
+---
+
+<center><img src="http://www.satshop.co.uk/img/page_images/bannerf1.jpg"></center>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=FALSE,warning=FALSE)
+```
+
+```{r}
+#load packages and csv file
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(ggthemes)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(ggrepel)
+library(viridis)
+library(circlize)
+```
+
+#Data cleaning - binding
+
+The dataset is pretty well organized. 
+
+The main file is `results.csv`, since it will bind (via primary / foreign keys) all the other specific files(`circuits`,`constructors`,`drivers`,`races`) with unique `Id`.
+
+My strategy is to bind `csv` files only for the topic/ section studied ; that way, I will not duplicate too many columns or increase the number of features.
+
+#Main file : `results`
+```{r}
+results<-read.csv('../input/results.csv',sep=',',stringsAsFactors=F)
+#convert character to numeric
+results$fastestLapSpeed<-as.numeric(results$fastestLapSpeed)
+#convert FastestLap(character) tonumeric(secondes)
+convertFastestLap<-function(x){
+	if(length(x)>0){
+		curMinute<-as.numeric(strsplit(x,":")[[1]][1])
+		curSecond<-as.numeric(strsplit(strsplit(x,":")[[1]][2],"\\.")[[1]][1])
+		return(curMinute*60 + curSecond)
+		}
+		else if(length(x)==0){
+			return(NA)
+		}
+}
+results$fastestLapTimeNum<-sapply(results$fastestLapTime, convertFastestLap)
+```
+
+#`Races, circuits` dataset
+```{r}
+races<-read.csv('../input/races.csv',stringsAsFactors=F,sep=',')
+#convert character to Date
+races$date<-as.Date(races$date,"%Y-%m-%d")
+#remove "Grand Prix" in the name
+races$name<-gsub(" Grand Prix","",races$name)
+
+results_2<-left_join(
+  results %>% dplyr::select(-time, -fastestLapTime), 
+  races %>% dplyr::select(-time, -url), 
+  by='raceId')
+
+circuits<-read.csv("../input/circuits.csv",sep=",",stringsAsFactors=F)
+races<-left_join(races %>% select(-name,-url), circuits %>% select(-url), by='circuitId')
+```
+
+##Are F1 cars going slower nowadays ?
+
+The `group_by` summarize the `Fastest Lap time` for all drivers in that race.
+
+```{r fig.width=10, fig.height=6, fig.align='center'}
+results_2 %>% 
+  dplyr::filter(year>2004) %>% 
+  dplyr::group_by(name,year) %>% 
+  summarize(medianFastestLapSpeed = median(fastestLapSpeed,na.rm=T)) %>% 
+  ggplot(aes(x=factor(year),y= medianFastestLapSpeed,color=medianFastestLapSpeed)) + 
+  geom_point() + theme_fivethirtyeight() + 
+  scale_color_gradientn(name="",colours=rev(viridis::viridis(20))) +
+  theme(
+    axis.text.x = element_text(size=6,angle=45),
+    strip.text.x = element_text(size = 10)) + facet_wrap(~name,ncol=9) + 
+  labs(title='Fastest Lap per Circuit, from 2005 to 2017',
+       subtitle='speed in km/h') +
+  guides(color=FALSE)
+```
+
+* In general we see a decrease in the average fastest lap per year, for allmost all circuits.
+* __Monaco__, as expected because taking place in town, is the slowest race
+* some interesting point : 
+    * __Barcelona (Spain)__ has a dip in 2007, explained by the fact that _The 2007 season saw the first of the two final sweepers replaced with a slow chicane in an effort to improve overtaking._([wikipedia](https://en.wikipedia.org/wiki/Circuit_de_Barcelona-Catalunya))
+    * in 2007 and 2008, __Japan Fuji Speedway__ replaced __Japan Suzuka__([wikipedia](https://en.wikipedia.org/wiki/Japanese_Grand_Prix)), which explains the sudden gap.
+* The `box_plot` below summarizes the whole trend.
+    
+```{r fig.width=10, fig.height=5, fig.align='center'}
+results_2 %>% 
+  dplyr::filter(year>2004) %>% 
+  dplyr::group_by(name,year) %>% 
+  summarize(medianFastestLapSpeed = median(fastestLapSpeed,na.rm=T)) %>% 
+  ggplot(aes(x=factor(year),y= medianFastestLapSpeed,color=medianFastestLapSpeed)) + 
+  geom_boxplot(alpha=.25) + theme_fivethirtyeight() + 
+  geom_jitter(shape=16,position=position_jitter(0.2),size=1.5) + 
+  geom_smooth(method='loess',aes(group=1),color='red',lty=2,size=.5) +
+  scale_color_gradientn(name="",colours=rev(viridis::viridis(20))) + 
+  labs(title='Fastest Lap per Year',
+       subtitle='in km/h, grouped by Grand Prix') + 
+  guides(color = FALSE)
+```
+
+###Check
+Taking the `mean` (and not the median value) is relatively safe here.
+
+```{r}
+results_2 %>% 
+  dplyr::filter(year>2004) %>% 
+  dplyr::group_by(name) %>% 
+  ggplot(aes(x=fastestLapSpeed)) + 
+  geom_histogram(bins=100) + theme_fivethirtyeight() + 
+  scale_color_gradientn(name="",colours=rev(viridis::viridis(20))) +
+  theme(
+    axis.text.x = element_text(size=6,angle=45),
+    strip.text.x = element_text(size = 10)) + facet_wrap(~name,ncol=9) + 
+  labs(title='Fastest Lap distribution per Circuit',
+       subtitle='speed in km/h, grouped by years') +
+  guides(color=FALSE)
+```
+
+##Are F1 Circuits shorter now ?
+By looking at the average lap time, we can infer this question. As for the `fastestLapSpeed`, it also depends on other factors(car getting better/ faster ?) but I think primarily the `fastestLapTime` can reflect on how long a circuit is.
+
+```{r fig.width=10, fig.height=5, fig.align='center'}
+results_2 %>% 
+  dplyr::filter(year>2004) %>% 
+  dplyr::group_by(name,year) %>% 
+  summarize(medianFastestLapTimeNum = median(fastestLapTimeNum,na.rm=T)) %>% 
+  ggplot(aes(x=factor(year),y= medianFastestLapTimeNum, color=medianFastestLapTimeNum)) +
+  geom_boxplot(alpha=.25) + theme_fivethirtyeight() + 
+  geom_jitter(shape=16,position=position_jitter(0.2),size=1.5) + 
+  geom_smooth(method='loess',aes(group=1),color='red',lty=2,size=.5) +
+  scale_color_gradientn(name="",colours=rev(viridis::viridis(20))) + 
+  labs(title='Lap time per Year',
+       subtitle='in seconds, grouped by Grand Prix') + 
+  guides(color = FALSE)
+```
+
+* it looks like there was some trend, with an increase in the time to complete a single lap.
+* then from 2014 and onwards, it looks like to plateau a bit.
+
+```{r fig.width=10, fig.height=5, fig.align='center'}
+results_2 %>% 
+  dplyr::filter(year>2004) %>% 
+  dplyr::group_by(name,year) %>% 
+  summarize(medianFastestLapTimeNum = median(fastestLapTimeNum,na.rm=T)) %>% 
+  ggplot(aes(x=factor(year),y= medianFastestLapTimeNum, color=medianFastestLapTimeNum)) +
+  geom_point() + theme_fivethirtyeight() + 
+  scale_color_gradientn(name="",colours=rev(viridis::viridis(20))) +
+  theme(
+    axis.text.x = element_text(size=6,angle=45),
+    strip.text.x = element_text(size = 10)) + facet_wrap(~name,ncol=9) + 
+  labs(title='Lap time per Year, from 2005 to 2017',
+       subtitle='in seconds') +
+  guides(color=FALSE)
+```
+
+#`Drivers` dataset
+
+Here: 
+
+* I joined the `drivers` datasets
+* calculate the current driver's age
+* joined the result with the main file(`results`) and `races`
+
+It should give a pretty complete dataframe at this point.
+
+```{r}
+drivers<-read.csv('../input/drivers.csv',sep=',',stringsAsFactors=F)
+#calculate the driver's age in 2017
+drivers$age_driver <- 2017 - sapply(drivers$dob, function(x) as.numeric(strsplit(x,'/')[[1]][3]))
+#load driversStandings
+driversStandings<-read.csv('../input/driverStandings.csv',sep=',',stringsAsFactors=F)
+drivers<-left_join(drivers %>% select(-url), driversStandings,by='driverId')
+
+#results_3<-
+#  left_join(
+#    results, 
+#    drivers %>% dplyr::rename(number_drivers = number) %>% select(-points, -position, -positionText),
+#    by=c('driverId','raceId')) %>% 
+#  left_join(races %>% select(-time), by='raceId')
+  
+results_3<-left_join(
+    results, 
+    drivers %>% dplyr::rename(number_drivers = number) %>% select(-points, -position, -positionText),
+    by=c('driverId','raceId')) 
+    
+results_3<-left_join(results_3,races %>% select(-time), by='raceId')
+```
+
+```{r fig.width=10, fig.height=10, fig.align='center',eval=T}
+winsDis<-results_3 %>% 
+  filter(position==1) %>% 
+  group_by(driverRef, circuitRef) %>% 
+  summarize(count=n()) %>%
+  mutate(allWins = sum(count)) %>%
+  ggplot(aes(x=allWins)) +
+  geom_histogram(bins=50) + theme_fivethirtyeight() + ggtitle("Distribution of the number of victories")
+
+winsBar<-results_3 %>% 
+  dplyr::filter(position==1) %>% 
+  dplyr::group_by(driverRef, circuitRef) %>% 
+  dplyr::summarize(count=n()) %>%
+  dplyr::mutate(allWins = sum(count)) %>% 
+  dplyr::filter(allWins>2) %>%
+  ggplot(aes(x=reorder(driverRef, allWins),y= count)) +
+  geom_bar(aes(fill=circuitRef),stat='identity',color='white',size=.1) + 
+  coord_flip() + theme_fivethirtyeight() + 
+  scale_fill_manual(name="",values = viridis::viridis(71)) +
+  guides(fill=guide_legend(ncol=5)) + 
+  theme(legend.text= element_text(size=10),
+        legend.key.size = unit(.1, "cm"),
+        legend.position=c(.65,.20)) + 
+  labs(title="Number of victories per Driver",
+       subtitle="only drivers with 2 or more wins are shown.")
+```
+
+```{r eval=T}
+winsBar + annotation_custom(grob = ggplotGrob(winsDis), xmin = 22, xmax = 50, ymin = 31, ymax = 90)
+#winsBar + annotation_custom(grob = ggplotGrob(winsDis), xmin = 30, xmax = 30, ymin = 29, ymax = 95)
+```
+
+#Constructors
+
+* merge all 3 `constructors` datafiles.
+
+```{r}
+constructors<-read.csv('../input/constructors.csv',sep=',',stringsAsFactors=F)
+constructorStandings<-read.csv('../input/constructorStandings.csv',sep=',',stringsAsFactors=F)
+constructorResults<-read.csv("../input/constructorResults.csv",sep=",",stringsAsFactors=F)
+
+constructorResults<-left_join(
+  constructorResults, 
+  races %>% rename(name_races = name), by='raceId')
+
+constructorResults <- left_join(constructorResults, constructors %>% select(-url) %>% rename(name_constructor = name), by='constructorId')
+
+constructorResults <- left_join(constructorResults, constructorStandings %>% rename(point_constructor = points) %>% select(-X), by=c('constructorId','raceId'))
+```
+
+```{r fig.width=10, fig.height=6, fig.align='center'}
+winConstructors<-constructorResults %>% 
+  filter(wins == 1) %>% 
+  group_by(name_constructor) %>% 
+  summarize(count=n()) %>% 
+  filter(count>0) %>%
+  ggplot(aes(x=reorder(name_constructor, count),y= count,fill=count)) +
+  geom_bar(stat='identity',color='white',size=.1) + 
+  coord_flip() + theme_fivethirtyeight() + 
+  scale_fill_gradientn(name="",colors = viridis::viridis(10)) +
+  guides(fill=guide_legend(ncol=3)) + 
+  theme(legend.text= element_text(size=10),
+        legend.key.size = unit(.1, "cm"),
+        legend.position=c(.65,.20)) + 
+  labs(title="Number of victories per Constructor",
+       subtitle="only Constructor with 1 or more wins are shown.") + guides(fill=F)
+       
+top5Constructors<-constructorResults %>% 
+  filter(name_constructor %in% c('Ferrari','McLaren','Williams','Brabham','BRM')) %>% 
+  filter(wins == 1) %>% group_by(name_constructor,year) %>%
+  summarize(count=n()) %>% 
+  ggplot(aes(x=factor(year),y=count)) +
+  geom_histogram(aes(fill=name_constructor),
+                 stat='identity',
+                 position="fill",
+                 size=1.5) + 
+  theme_fivethirtyeight() + scale_fill_brewer(name="",palette='Paired') +
+  theme(axis.text.x = element_text(size=8,angle=45)) + ggtitle("Top 5 constructors's wins per year")
+```
+
+```{r fig.width=10, fig.height=8, fig.align='center'}
+winConstructors + 
+annotation_custom(grob = ggplotGrob(top5Constructors), xmin = 20, xmax = 0, ymin = 20, ymax = 200)
+```
+
+#PROST - SENNA : the greatest rivalry
+
+* filter the results for `Prost`, `Senna` only
+* before 1991, a victory accounted for 9 points so that's how I found whether there was a win or not.
+
+```{r}
+y1988 <- results_3 %>% 
+  dplyr::filter(driverRef=='prost' | driverRef=='senna')%>% 
+  filter(year==1988) %>% 
+  select(date,driverRef,points) %>% mutate(winRace = ifelse(points==9,'yes','no')) %>%
+  group_by(driverRef) %>% 
+  mutate(current = cumsum(points))  %>% 
+  ggplot(aes(x=date,y=current,color=driverRef)) + 
+  geom_line(size=2,alpha=.5) + geom_point(aes(shape=winRace),color='black',size=2) + 
+  theme_fivethirtyeight() + scale_color_brewer(name="",palette='Set1') + ylim(0,120) + 
+  labs(title="Points accumulated during Season 1988",subtitle = 'triangle indicates a race win, circle otherwise') + 
+  theme(legend.position='right',legend.direction='vertical') + guides(shape=FALSE)
+
+y1989<-results_3 %>% 
+  dplyr::filter(driverRef=='prost' | driverRef=='senna') %>%  
+  filter(year==1989) %>% 
+  select(date,driverRef,points) %>% mutate(winRace = ifelse(points==9,'yes','no')) %>%
+  group_by(driverRef) %>% 
+  mutate(current = cumsum(points)) %>% 
+  ggplot(aes(x=date,y=current,color=driverRef)) + 
+  geom_line(size=2,alpha=.5) + geom_point(aes(shape=winRace),color='black',size=2) + 
+  theme_fivethirtyeight() + scale_color_brewer(name="",palette='Set1') + 
+  labs(title="Points accumulated during Season 1989",subtitle = 'triangle indicates a race win, circle otherwise\n[1]:https://www.motorsport.com/f1/news/25-years-ago-today-a-rivalry-became-legendary-1989-japanese-gp/') + 
+  theme(legend.position='right',legend.direction='vertical') + guides(shape=FALSE) + 
+  annotate("text", x=as.Date("1989-10-15"), y = 68, label = "The Japanese incident[1]", size=3, colour="black") + 
+  geom_curve(aes(x = as.Date("1989-10-15"), y = 71, xend = as.Date("1989-10-22"), yend = 79), curvature = .05,arrow = arrow(length = unit(0.02, "npc")),color='black')
+```
+
+```{r fig.width=10, fig.height=8, fig.align='center'}
+grid.arrange(y1988, y1989, ncol=1)
+```
+
+* Prost outscored Senna in both seasons.
+* In 1988, only the best 11 results counted toward the championship([Peter Higham, The Guinness Guide to International Motor Racing, 1995, page 126](https://www.bullpublishing.com/shop/item.asp?itemid=4))
+    * Prost scored 105 points during the year, but only 87 points were counted toward the championship. Senna scored 94 points, with 90 points counted toward the championship by virtue of winning more races. 
+    * Thus, Senna became the World Champion, although he did not score the most points over the course of the year.
+* in 1989, the _Japanese incident_ refers to the Suzuka Grand Prix:  Senna had to win to secure the championship, whereas Prost’s only chance to win the championship hinged on Senna not finishing the race.
+    * When the race began Prost took the lead early on, but on lap 46 at the Casino chicane, both drivers collided and ran off the track([reference](https://www.sportskeeda.com/f1/ayrton-senna-and-alain-prosts-legendary-rivalry-and-the-politics-behind-it))
+
+# The _Red Baron_ case: is Michael Schumacher the greatest driver of all time ?
+
+* Basically I need to merge a lot of files
+
+```{r}
+results_4<-
+    left_join(
+        results %>% select(-time) %>% rename(number_results = number), 
+        drivers %>% select(-points,-position,-positionText) %>% rename(number_drivers = number, driver_nationality = nationality),by=c('driverId','raceId')) %>% 
+    left_join(constructorResults %>% select(-points, -position, -positionText, -X) %>% rename(wins_constructor = wins, nationality_constructor = nationality), by=c('raceId','constructorId'))
+```
+
+```{r}
+#races by (year, constructor)
+g1<-results_4 %>% filter(driverRef == 'michael_schumacher') %>% 
+    group_by(name_constructor, year) %>% summarize(countByConstructor = n()) %>% 
+    ggplot(aes(x=factor(year),y=countByConstructor,fill=name_constructor)) + 
+    geom_histogram(stat='identity') + theme_fivethirtyeight() + 
+    scale_fill_manual(name='',values =c(Benetton='#87CEEB',Ferrari='#EE0000',Jordan='#FFD700',Mercedes='#7F7F7F')) + 
+    theme(legend.position='top',
+          axis.ticks=element_blank(),
+          axis.text.x=element_blank(),
+          axis.title.x=element_blank()) + 
+    labs(title='The Red baron case : Michael Schumacher',subtitle='top : by constructor, bottom : cumulated')
+    
+g2<-results_4 %>% filter(driverRef == 'michael_schumacher') %>% 
+    group_by(year) %>% summarize(count=n()) %>% mutate(cumulRaces = cumsum(count)) %>% 
+    ggplot(aes(x=factor(year),y=cumulRaces))+ geom_histogram(stat='identity') + 
+    theme_fivethirtyeight() + theme(legend.position='None')
+```
+
+```{r fig.width=10, fig.height=8, fig.align='center'}
+grid.arrange(g1, g2, ncol=1, nrow=2, heights=c(4, 1))
+```
+
+* short answer : YES! (more than 300 races in 19 F1 seasons)
+* also he stayed more than 10 years at Ferrari.
+
+#50 years of F1, 10 best drivers
+
+* question : did some drivers dominate the Championship during their active years ?
+
+```{r}
+#find the top 10 drivers, by their number of wins
+temp<-(results_3 %>% filter(position==1) %>% group_by(driverRef) %>% summarize(count=n()) %>% arrange(-count) %>% top_n(10))$driverRef
+results_3$top10<-ifelse(results_3$driverRef %in% temp,results_3$driverRef,'other')
+```
+
+```{r fig.width=10, fig.height=6, fig.align='center'}
+results_3 %>% filter(position==1) %>% group_by(top10,year) %>% 
+    summarize(count=n()) %>% filter(count>0 & year>=1960) %>% 
+    ggplot(aes(x=factor(year),y=count)) + 
+    geom_histogram(aes(fill=top10),position="fill",stat='identity') + 
+    theme_fivethirtyeight() + 
+    theme(legend.position='bottom',
+    axis.text.x = element_text(size=8,angle=45)) + 
+    scale_fill_brewer(name="",palette='Paired') + guides(fill=guide_legend(ncol=13)) + 
+    labs(title='Proportion of wins per Driver and year',
+         subtitle='only the top 10 drivers by number of wins are shown')
+```
+
+* during the `60's`, `70's` --> hegemony of __Jim Clark__ and __Jackie Stewart__
+* end of `70's` --> hegemony of __Niki Lauda__
+* `80's` to early `90's` --> __Nigel Mansell__, __Alain Prost__ and __Ayrton Senna__
+* the __Red Baron__ dominates all the `90's` and beginning of `2000`
+* then recently --> __Fernando Alonso__, __Leweis Hamilton__ and __Sebastian Vettel__
+
+#Relationship `Driver`, `Constructor`
+
+A chordiagram is useful to show relationship between 2 entities. In the following section, I :
+
+* join the `results` and `constructor` dataset
+* select when a win occured (`position==1`)
+* group_by (`constructor`, `driver`)
+* filter by the number of wins (for visibility)
+* assign some color code to some `Constructor`
+
+```{r}
+results_4<-left_join(
+  results_3, 
+  constructorResults %>% select(-position,-positionText,-points,-X,-country,-wins,-lng,-lat,-alt,-nationality,-circuitRef,-round, -circuitId,-year,-time,-date,-location),
+  by=c('raceId','constructorId'))
+temp<-data.frame(
+  results_4 %>% filter(position==1) %>% 
+    group_by(name_constructor, driverRef) %>% 
+    summarize(count=n()) %>% filter(count>5) %>% na.omit())
+
+#prepare colors
+names<-sort(unique(temp$name_constructor))
+color <- c('#87CEEB',"gray50","gray50","#FFFFE0","gray50","#006400",'#EE0000','#1E90FF','gray50','#006400','#7F7F7F','#7F7F7F','#9C661F','#FFD700','gray50','gray50','#EEEEE0')
+COL<-data.frame(name_constructor = names,color)
+temp2<-data.frame(left_join(temp, COL, by='name_constructor'))
+```
+
+```{r fig.width=10, fig.height=10, fig.align='center'}
+chordDiagram(temp2[,c(1:2)],transparency = 0.5, grid.col = append(color,rep('aliceblue',32)), col= as.character(temp2$color),annotationTrack = "grid", preAllocateTracks = 1)
+#cosmetic
+circos.trackPlotRegion(
+  track.index = 1, 
+  panel.fun = function(x, y) {
+    xlim = get.cell.meta.data("xlim")
+    ylim = get.cell.meta.data("ylim")
+    sector.name = get.cell.meta.data("sector.index")
+    circos.text(
+      mean(xlim), 
+      ylim[1], 
+      sector.name, 
+      facing = "clockwise", 
+      niceFacing = TRUE, 
+      adj = c(0, 0.25), 
+      cex=.7)
+  circos.axis(
+    h = "top", 
+    labels.cex = 0.5, 
+    major.tick.percentage = 0.2, 
+    sector.index = sector.name, 
+    track.index = 2)
+  }, 
+  bg.border = NA)
+```
+
+* `McLaren`, `Ferrari` and `Williams` dominate.
+
+<hr>
+
+<strong>History :</strong>
+
+* _version 1 : initial commit_ 
+* _version 2 : better coding(pipes, joins), added constructors and drivers section_
+* _version 3 : added M. Schumacher plots_
+* _version 4 : added top10 drivers plot_
+* _verison 5 : added chordiagramm for driver/constructor relationship_
+
+<hr>

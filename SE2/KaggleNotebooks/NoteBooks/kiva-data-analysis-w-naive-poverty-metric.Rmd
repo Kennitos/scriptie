@@ -1,0 +1,2928 @@
+---
+title: "Kiva Data Analysis w/ Naive Poverty Metric"
+author: "Bukun"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    fig_width: 10
+    code_folding: hide
+    fig_height: 4.5
+    theme: cosmo
+    highlight: tango
+---
+
+#Introduction
+
+We provide the following analysis for all Kiva loans here        
+
+<hr/>
+
+Section : **Global view of Kiva loans**
+
+<hr/>
+
+* Most Popular themes are **General, Underserved followed by Agriculture,Rural Inclusion , Water and Higher Education**       
+
+* Most Popular sectors are **Agriculture**,Food, Retail, Services and Personal Use          
+
+* Most Popular activities for usage of loans are **Farming**, General Store,Personal Housing Expenses,Food Production/ Sales and Agriculture                         
+
+* The most popular uses of loans are **To Buy Water Filter**, To construct a Sanitary toilet, To buy ingredients for food production business, To buy groceries to sell, To buy food for pigs                   
+
+* The median funded amount is **$450** and the mean funded amount is **$786**       
+
+* **14 months** is the most common Term for the loans followed by 8, 11 ,7 and 13 months      
+
+* **Women** get more loans than men
+
+* The countries which have received the most loans are **Phillipines,Kenya,ElSalvador,Cambodia and Pakistan**     
+
+
+<hr/>
+
+Section : **African Loans**
+
+<hr/> 
+
+* **Kenya,Lesotho,Uganda,Malawi and Ghana** are the countries which have got the most loans.      
+
+* We observe from the sections `Multidimensional Poverty Measures` and `Distribution of loans in Africa` that we do not see loans in the poorest areas. This might be an opportunity for Kiva to help these **very underpriviliged countries**.      
+
+* We extend our analysis to the **African Conflicts data** found in Kaggle and map the most `battle prone areas in 2016 and 2017`. The intention is to highlight that these Battle prone areas may be in need of funds for very basic neccessities such as water and food.We find that the most Battle prone countries **Somalia, South Sudan, Libya and Sudan** do not get feature a lot in the Kiva loans.There is a lot of oppurtunity for people in these countries to leverage Kiva.         
+
+* We observe that the African median funded amount( $375 ) is **less than** the World median funded amount ( $450). Kiva can channelise more funds to African continent since we can help with `smaller amounts`.
+
+<hr/>
+
+Section : **Asian Loans**
+
+<hr/>       
+
+* **Philippines,Cambodia,Indonesia,Tajikastan and Pakistan** have the most loans          
+
+* Afghanistan,Yemen,Pakistan,India and Bangladesh are the poorest Asian Countries from the MPI Rural measure.Afghanistan,Bangladesh,Pakistan,Yemen and India are the poorest Asian Countries from the MPI Urban measure.                 
+
+* We see that the countries **Yemen,Bangladesh,Myanmar and Iraq** though they are the poorest do not feature in Kiva loans. There is a good opportunity for them to be included to be in the Kiva family. 
+
+
+<hr/>
+
+Section : **Multidimensional Poverty Measures**
+
+<hr/>  
+
+We use the Kaggle Dataset **Multidimensional Poverty Measures** to investigate the poverty in the world. We would connect these measures with the Kiva laons for a more complete understanding. In this section we explore the different metrics of the **Multidimensional Poverty Measures**  
+
+Multidimensional poverty measures can be used to create a more comprehensive picture. They reveal who is poor and how they are poor – the range of different disadvantages they experience.**Higher the MPI, poorer is the country**           
+
+
+* Niger,Somalia, Ethopia,Burkina Faso and Chad are the poorest from the MPI Rural measure       
+
+* South Sudan,Chad, Somalia,Liberia and Central African Republic are the poorest from the MPI Urban measure
+
+* **Lac in Chad** is the poorest region followed by Affar in Ethopia, Est in Burkina Faso, Ouaddað and Wadi Fira in Chad.        
+
+* `Mali, Sierra Leone,Liberia`, Mozambique,Burkina Faso are the High MPI Rural countries with the most loans.`Armenia,Kyrgyzstan,Albania`,Ukraine and Thailand are the Low MPI Rural countries with the most loans        
+
+* The loans for High MPI countries are used for `buying condiments, to buy sheep for resale, to buy contruction materials`,to buy building materials, to buy fertilizer for groundnuts, okra and peanuts. The loans for Low MPI countries are used `to buy cows, to pay for her higher education`,to buy some livestock to increase her herd and to buy sheep                           
+
+* `Food,Retail,Agriculture`,Clothing and Services are the most popular sector for loans in High MPI Rural countries. `Agriculture,Education,Health`,Housing and Clothing are the most popular sector for loans in Low MPI Rural countries                
+
+* High MPI Countries have **Median Funded Loan Amount**  **$600**  and Low MPI Countries have Median Funded Loan Amount  **$1100**     
+
+
+<hr/>
+
+Section : **Human Development Index**
+
+<hr/> 
+
+From Wiki
+
+> The Human Development Index (HDI) is a composite statistic (composite index) of life expectancy, education, and per capita income indicators, which are used to rank countries into four tiers of human development. A country scores higher HDI when the lifespan is higher, the education level is higher, and the GDP per capita is higher. The HDI was developed by Pakistani economist Mahbub ul Haq for the UNDP(United Nations Development Programme).
+
+
+`Sierra Leone` , `Eritrea` , `South Sudan` , `Mozambique`, `Guinea`, `Burundi`, `Burkina Faso`, `Chad` , `Niger` and `Central African Republic` are countries with the **lowest Human Development Index**               
+Kiva should direct the loans to these countries.
+
+
+<hr/>
+
+Section : **Population below Poverty Line**
+
+<hr/> 
+
+`Syria`,`Zimbabwe`,`Madagascar`,`Sierra Leone`,`Suriname`,`Nigeria`,`Guinea-Bissau`,`Burundi`,`Swaziland` and `Democratic Republic of Congo` are the countries which have the highest population below poverty line.   
+
+<hr/>
+
+Section : **Naive Poverty Metric**
+
+<hr/>
+
+* The **Naive Poverty Metric** is calculated on the `Population below Poverty Line` , `Human Development Index`, `MPI Urban` and `MPI Rural`              
+
+
+* `Nigeria`, `Guinea`, `Burkina Faso`, `Liberia` ,`Burundi`, `Guinea-Bissau`, `Chad`, `Niger`, `Sierra Leone` and `South Sudan` are the poorest according to the **Naive Poverty Metric**              
+
+#Preparation{.tabset .tabset-fade .tabset-pills}
+
+##Load Libraries
+
+```{r,message=FALSE,warning=FALSE}
+
+library(tidyverse) #  data manipulation and graphs
+library(stringr) #  string manipulation
+library(lubridate) #  date manipulation
+library(DT)       # table format display of data
+library(leaflet) # maps
+
+library(knitr)
+
+library(treemap)
+
+library(caret)
+library(forecast)
+library(prophet)
+
+```
+
+##Read the data
+
+```{r,message=FALSE,warning=FALSE}
+
+rm(list=ls())
+
+fillColor = "#FFA07A"
+fillColor2 = "#F1C40F"
+fillColorLightCoral = "#F08080"
+
+loans <- read_csv('../input/data-science-for-good-kiva-crowdfunding/kiva_loans.csv')
+regions <- read_csv("../input/data-science-for-good-kiva-crowdfunding/kiva_mpi_region_locations.csv")
+themes <- read_csv("../input/data-science-for-good-kiva-crowdfunding/loan_theme_ids.csv")
+themes_region <- read_csv("../input/data-science-for-good-kiva-crowdfunding/loan_themes_by_region.csv")
+
+mpi_national = read_csv('../input/mpi/MPI_national.csv')
+mpi_subnational = read_csv('../input/mpi/MPI_subnational.csv')
+
+country_stats <- read_csv("../input/additional-kiva-snapshot/country_stats.csv")
+GEconV4 = read_delim(file = "../input/additional-kiva-snapshot/GEconV4.csv",delim=";")
+
+countries_continents = read_csv('../input/world-countries-and-continents-details/countries and continents.csv')
+
+kiva_dhs = read_csv('../input/kivadhsv1/KIVA.DHSv4.csv')
+
+ConflictsData =  read_csv("../input/african-conflicts/african_conflicts.csv", col_types = cols(
+  .default = col_character(),
+  FATALITIES = col_integer(),
+  GEO_PRECISION = col_integer(),
+  GWNO = col_integer(),
+  INTER1 = col_integer(),
+  INTER2 = col_integer(),
+  INTERACTION = col_integer(),
+  LATITUDE = col_character(),
+  LONGITUDE = col_character(),
+  TIME_PRECISION = col_integer(),
+  YEAR = col_integer()
+))
+
+ConflictsData$LATITUDE[!grepl("^[0-9.]+$", ConflictsData$LATITUDE)] <- NA
+ConflictsData$LONGITUDE[!grepl("^[0-9.]+$", ConflictsData$LONGITUDE)] <- NA
+ 
+ConflictsData$LATITUDE = as.numeric(as.character(ConflictsData$LATITUDE))
+ConflictsData$LONGITUDE = as.numeric(as.character(ConflictsData$LONGITUDE))
+
+loans$use = trimws(loans$use)
+
+```
+
+#Glimpse of Data{.tabset .tabset-fade .tabset-pills}
+
+##Loans data
+
+Loans data contains data about some of Kiva's loans. It is a subset of Kiva's data snapshots
+
+```{r,message=FALSE,warning=FALSE}
+
+glimpse(loans)
+
+```
+
+##Regions data
+
+This data contains Kiva’s estimates as to the geolocation of subnational MPI regions
+
+```{r,message=FALSE,warning=FALSE}
+
+datatable(head(regions), style="bootstrap", class="table-condensed", options = list(dom = 'tp',scrollX = TRUE))
+
+```
+
+##Themes data
+
+This data contains Kiva’s loan themes
+
+```{r,message=FALSE,warning=FALSE}
+
+datatable(head(themes), style="bootstrap", class="table-condensed", options = list(dom = 'tp',scrollX = TRUE))
+
+```
+
+##Themes and Regions data
+
+This data contains Kiva’s maps the loan themes with the Regions data
+
+```{r,message=FALSE,warning=FALSE}
+
+glimpse(themes_region)
+
+```
+
+
+
+#Most Popular Sector
+
+The Sector which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+loans %>%
+  group_by(sector) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(sector = reorder(sector,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = sector,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = sector, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Sector', 
+       y = 'Count', 
+       title = 'Sector and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+#Most Popular Activity for taking loans
+
+The Activity which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+loans %>%
+  group_by(activity) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(activity = reorder(activity,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = activity,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor) +
+  geom_text(aes(x = activity, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Activity', 
+       y = 'Count', 
+       title = 'Activity and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+#Most Popular Use of loans 
+
+```{r,message=FALSE,warning=FALSE}
+
+  loans %>%
+  mutate(use = trimws(use)) %>%
+  filter(!is.na(use)) %>%
+  group_by(use) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(use = reorder(use,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = use,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColorLightCoral) +
+  geom_text(aes(x = use, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Use of Loans', 
+       y = 'Count', 
+       title = 'Use of Loans and Count') +
+     coord_flip() +
+     theme_bw() 
+
+```
+
+
+#Distribution of the Funded Loan amount
+
+The funded loan amount is shown in the form of a histogram. The Y axis and the X axis has been log transformed for better visualization.             
+
+
+```{r,message=FALSE,warning=FALSE}
+
+fundedLoanAmountDistribution <- function(loans)
+{
+  loans %>%
+    ggplot(aes(x = funded_amount) )+
+    scale_x_log10(
+      breaks = scales::trans_breaks("log10", function(x) 10^x),
+      labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+    scale_y_log10(
+      breaks = scales::trans_breaks("log10", function(x) 10^x),
+      labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) + 
+    geom_histogram(fill = fillColor2,bins=50) +
+    labs(x = 'Funded Loan Amount' ,y = 'Count', title = paste("Distribution of", "Funded Loan Amount")) +
+    theme_bw()
+}
+
+fundedLoanAmountDistribution(loans)
+
+
+```
+
+##Distribution of the Funded Loan amount by Country
+
+Phillippines,Kenya,Peru,Paraguay and ElSalvador get the maximum funding through Kiva loans
+
+```{r,message=FALSE,warning=FALSE}
+
+loans_funded_amount = loans %>%
+  group_by(country) %>%
+  summarise(FundedAmount = sum(funded_amount)) %>%
+  arrange(desc(FundedAmount)) %>%
+  ungroup() %>%
+  mutate(country = reorder(country,FundedAmount)) %>%
+  head(20) 
+
+
+treemap(loans_funded_amount, 
+        index="country", 
+        vSize = "FundedAmount",  
+        title="Funded Amount", 
+        palette = "RdBu",
+        fontsize.title = 14 
+)
+
+```
+
+
+## Summary of Funded Amount
+
+```{r,message = FALSE, warning = FALSE}
+
+loans %>%
+   select(funded_amount) %>%
+   summary()
+   
+```
+
+        
+
+##Distribution of the Funded Loan amount by Sector
+
+The funded loan amount is shown sector wise below. The amount has been scaled by log10.
+
+```{r,message=FALSE,warning=FALSE}
+
+
+loans %>%
+  mutate( fill = as.factor(sector)) %>%
+      ggplot(aes(x = sector, y= funded_amount, fill = sector)) +
+      scale_y_log10(
+      breaks = scales::trans_breaks("log10", function(x) 10^x),
+      labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+      geom_boxplot() +
+      labs(x= 'Sector Type',y = 'Funded Amount', 
+           title = paste("Distribution of", ' Funded Amount ')) +
+       theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+##Distribution of loans by Gender
+
+Females loan more than males as shown below.           
+
+```{r,message=FALSE,warning=FALSE}
+
+
+loans %>%
+  filter(!is.na(borrower_genders)) %>%
+  mutate(gender = ifelse(str_detect(borrower_genders,"female"), "female","male")) %>%
+  group_by(gender) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(gender = reorder(gender,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = gender,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor) +
+  geom_text(aes(x = gender, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Gender', 
+       y = 'Count', 
+       title = 'Gender and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+#Most common Term In Months in loans
+
+The plot below shows the most common Term In Months for the loans.          
+
+14 months is the most common Term for the loans followed by 8, 11 ,7 and 13 months
+
+```{r,message=FALSE,warning=FALSE}
+
+loans %>%
+  filter(!is.na(term_in_months)) %>%
+  group_by(term_in_months) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(term_in_months = reorder(term_in_months,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = term_in_months,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = term_in_months, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Term in Months', 
+       y = 'Count', 
+       title = 'Term in Months and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+
+#Most Popular Countries for loans
+
+The Country which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+loans %>%
+  group_by(country) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(country = reorder(country,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = country,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor) +
+  geom_text(aes(x = country, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Country', 
+       y = 'Count', 
+       title = 'Country and Count') +
+  coord_flip() +
+   theme_bw()
+
+
+
+```
+
+
+
+#Maps of Loans
+
+We plot the loans in the word map with the size of the dots proportional to the amount of the loans
+
+```{r,message=FALSE,warning=FALSE}
+
+leaflet(themes_region) %>% addTiles() %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/10) ,
+             color = fillColor2)  %>%
+  # controls
+  setView(lng=0, lat=0,zoom = 2) 
+
+```
+
+
+
+#Themes Loan combined
+
+```{r,message=FALSE,warning=FALSE}
+
+themes_region_combined = inner_join(themes_region,regions,by =c('country')) %>%
+  select(world_region,lat.x,lon.x,country,amount) %>%
+  rename (lat = lat.x) %>%
+    rename(lon = lon.x)
+
+
+
+```
+
+
+#Most Popular Theme
+
+The following bar chart shows the most popular themes in a bar chart.We have removed rows where the theme was not mentioned. 
+
+* `General` is the most popular theme which does not give us a lot of information.             
+
+* `Underserved` is the next popular theme, followed by `Agriculture`,`Rural Inclusion` , `Water`  and  `Higher Education`
+
+```{r,message=FALSE,warning=FALSE}
+
+themes %>%
+  rename (themeType = `Loan Theme Type`) %>%
+  filter(!is.na(themeType)) %>%
+  group_by(themeType) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(themeType = reorder(themeType,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = themeType,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = themeType, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Type of Theme', 
+       y = 'Count', 
+       title = 'Type of Theme and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+#Africa
+
+##Distribution of loans in Africa
+
+The plots show the African countries which has been given the most loans in the bar plot. This also shows the map of Africa with the loans appearing as dots in the map.         
+
+**Kenya,Lesotho,Uganda,Malawi and Ghana** are the countries which have got the most loans.
+
+
+```{r,message=FALSE,warning=FALSE}
+
+plotBarPlotLoansInGeography <- function(country_loans)
+{
+
+country_loans %>%
+  group_by(country) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(country = reorder(country,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = country,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColorLightCoral) +
+  geom_text(aes(x = country, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Countries', 
+       y = 'Count', 
+       title = 'Countries and Count') +
+  coord_flip() +
+   theme_bw()
+  
+}
+
+
+plotMapsLoansInGeography <- function(country_loans)
+{
+
+center_lon = median(country_loans$lon,na.rm = TRUE)
+center_lat = median(country_loans$lat,na.rm = TRUE)
+
+
+leaflet(country_loans) %>% addTiles() %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/10) ,
+             color =fillColor2)  %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 3) 
+
+}
+
+country_loans = themes_region_combined %>%
+  filter(str_detect(world_region,"Africa"))
+
+unique(country_loans$world_region)
+
+plotBarPlotLoansInGeography(country_loans)
+
+plotMapsLoansInGeography(country_loans)
+
+
+```
+
+**Observations**
+
+We observe from the sections `Multidimensional Poverty Measures` and `Distribution of loans in Africa` that we do not see loans in the poorest areas. This might be an opportunity for Kiva to help these **very underpriviliged countries**.      
+
+##African Conflicts Data
+
+We extend our analysis to the **African Conflicts data** found in Kaggle and map the most `battle prone areas in 2016 and 2017`. The intention is to highlight that these Battle prone areas may be in need of funds for very basic neccessities such as water and food              
+
+```{r, message=FALSE, warning=FALSE}
+
+# Identify areas where there is Battle
+keywordBattle = "Battle"
+
+BattleData = ConflictsData %>% 
+  filter(!is.na(LATITUDE)) %>%
+  filter(!is.na(LONGITUDE)) %>%
+  filter(str_detect(EVENT_TYPE,keywordBattle) )
+
+BattleData20162017 = BattleData %>% filter(YEAR >= 2016)
+
+center_lon = median(BattleData$LONGITUDE)
+center_lat = median(BattleData$LATITUDE)
+
+leaflet(BattleData20162017) %>% addTiles() %>%
+  addCircles(lng = ~LONGITUDE, lat = ~LATITUDE,radius = ~(FATALITIES), 
+             color = fillColor)  %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat, zoom=3)
+
+```
+
+### Battle affected Countries
+
+The following plot shows the plot of high **Conflict Countries** and the Count shows the number of **Battles** in 2016 and 2017.                       
+
+```{r,message=FALSE,warning=FALSE}
+
+HighConflictCountries <- BattleData20162017 %>%
+  group_by(COUNTRY) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(COUNTRY = reorder(COUNTRY,Count)) %>%
+  head(10)
+
+HighConflictCountries %>%
+  
+  ggplot(aes(x = COUNTRY,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = c("red")) +
+  geom_text(aes(x = COUNTRY, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Country', 
+       y = 'Count', 
+       title = 'High Conflict Countries and Count') +
+  coord_flip() +
+  theme_bw()
+
+```
+
+We observe that the following countries **Somalia, South Sudan, Libya, Nigeria and Sudan** are high Battle affected countries and we will investigate how many loans were given for the major Battle affected countries.         
+
+
+### Loans in Battle affected Countries
+
+We explore the number of loans provided in the Top **Twenty High Conflict countries**.    
+
+```{r,message=FALSE,warning=FALSE}
+
+AfricanLoans <- regions %>%
+  select(country,world_region) %>%
+  unique() %>%
+  inner_join(loans) %>%
+  filter(str_detect(world_region,"Africa"))
+
+HighConflictCountries <- BattleData20162017 %>%
+  group_by(COUNTRY) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  head(20)
+
+
+HighConflictCountryLoans <- inner_join(AfricanLoans,HighConflictCountries,
+                                       by =c("country" = "COUNTRY")) %>%
+                                    group_by(country) %>%
+                                    summarise(Count = n()) %>%
+                                    arrange(desc(Count))
+
+HighConflictCountryLoans %>%
+  ungroup() %>%
+  mutate(country = reorder(country,Count)) %>%
+ 
+   ggplot(aes(x = country,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = country, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Battle affected Countries', 
+       y = 'Loan Count', 
+       title = 'Battle affected Countries and Loan Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+The countries **Somalia, South Sudan, Libya and Sudan** do not get feature a lot in the Kiva loans.There is a lot of oppurtunity for people in these countries to leverage Kiva.         
+
+
+##Use of loans in Africa
+
+```{r,message=FALSE,warning=FALSE}
+
+ 
+AfricanLoans <- regions %>%
+  select(country,world_region) %>%
+  unique() %>%
+  inner_join(loans) %>%
+  filter(str_detect(world_region,"Africa"))
+
+  AfricanLoans %>%
+  filter(!is.na(use)) %>%
+  
+  group_by(use) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(use = reorder(use,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = use,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = use, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Use of Loans', 
+       y = 'Count', 
+       title = 'Use of Loans and Count') +
+     coord_flip() +
+     theme_bw() 
+
+```
+
+
+##Most Popular Sector in Africa
+
+The Sector which is the most popular for loans in Africa is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+ AfricanLoans %>%
+  filter(!is.na(sector)) %>%
+  
+  group_by(sector) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(sector = reorder(sector,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = sector,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = sector, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Sector', 
+       y = 'Count', 
+       title = 'Sector and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+##Distribution of the Funded Loan amount in **Africa**
+
+The funded loan amount is shown in the form of a histogram. The Y axis and the X axis has been log transformed for better visualization.             
+
+
+```{r,message=FALSE,warning=FALSE}
+
+fundedLoanAmountDistribution(AfricanLoans)
+
+
+```
+
+## Summary of Funded Amount in **Africa**
+
+```{r,message = FALSE, warning = FALSE}
+
+
+AfricanLoans %>%
+   select(funded_amount) %>%
+   summary()
+   
+```
+
+**Observations**              
+
+We observe that the African median funded amount( $375 ) is **less than** the World median funded amount ( $450). Kiva can channelise more funds to African continent since we can help with `smaller amounts`.
+
+#Asia
+
+##Distribution of loans in Asia
+
+**Philippines,Cambodia,Indonesia,Tajikastan and Pakistan** have the most loans                
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans = themes_region_combined %>%
+  filter(str_detect(world_region,"Asia"))
+
+unique(country_loans$world_region)
+
+plotBarPlotLoansInGeography(country_loans)
+
+
+```
+
+##Poorest Asian Countries from Multidimensional Poverty Measures{.tabset .tabset-fade .tabset-pills}
+
+* Afghanistan,Yemen,Pakistan,India and Bangladesh are the poorest Asian Countries from the MPI Rural measure.         
+
+* Afghanistan,Bangladesh,Pakistan,Yemen and India are the poorest Asian Countries from the MPI Urban measure.         
+
+###Rural
+
+```{r,message=FALSE,warning=FALSE}
+
+countries_continents = countries_continents %>%
+  select(name,Continent)
+
+mpi_national_continent = inner_join(mpi_national,countries_continents,by =c('Country'= 'name'))
+
+poor_countries_rural <- mpi_national_continent %>%
+  filter(Continent == 'AS') %>%
+  rename(MPIRural = `MPI Rural`) %>%
+  arrange(desc(MPIRural)) %>%
+  head(15) %>%
+  select(Country,MPIRural)
+
+treemap(poor_countries_rural, 
+        index="Country", 
+        vSize = "MPIRural",  
+        title="Poorest Countries Rural Perspective", 
+        palette = "RdBu",
+        fontsize.title = 14 
+)
+
+```
+
+
+###Urban
+
+```{r,message=FALSE,warning=FALSE}
+
+poor_countries_urban <- mpi_national_continent %>%
+  filter(Continent == 'AS') %>%
+  rename(MPIUrban = `MPI Urban`) %>%
+  arrange(desc(MPIUrban)) %>%
+  head(15) %>%
+  select(Country,MPIUrban)
+
+
+treemap(poor_countries_urban, 
+        index="Country", 
+        vSize = "MPIUrban",  
+        title="Poorest Countries Urban Perspective", 
+        palette = "RdBu",
+        fontsize.title = 14 
+)
+
+
+```
+
+##Explore the loans in the Poorest Asian countries     
+
+
+```{r,message=FALSE,warning=FALSE}
+ 
+AsianLoans <- regions %>%
+  select(country,world_region) %>%
+  unique() %>%
+  inner_join(loans) %>%
+  filter(str_detect(world_region,"Asia"))
+  
+poor_countries_loans <- inner_join(AsianLoans,poor_countries_rural,
+           by =c("country" = "Country")) %>%
+  group_by(country) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+as.tibble(setdiff(poor_countries_rural$Country,poor_countries_loans$country))
+
+```
+
+The above countries though they feature among the **poorest Asian countries from the MPI rural measure** do not feature in Kiva loans. There is a good opportunity for them to be included to be in the Kiva family.   
+
+
+##Use of loans in Asia
+
+```{r,message=FALSE,warning=FALSE}
+
+
+  AsianLoans %>%
+  filter(!is.na(use)) %>%
+  
+  group_by(use) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(use = reorder(use,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = use,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = use, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Use of Loans', 
+       y = 'Count', 
+       title = 'Use of Loans and Count') +
+     coord_flip() +
+     theme_bw() 
+
+```
+
+##Most Popular Sector in Asia
+
+The Sector which is the most popular for loans in Asia is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+ AsianLoans %>%
+  filter(!is.na(sector)) %>%
+  
+  group_by(sector) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(sector = reorder(sector,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = sector,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = sector, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Sector', 
+       y = 'Count', 
+       title = 'Sector and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+##Distribution of the Funded Loan amount in **Asia**
+
+The funded loan amount is shown in the form of a histogram. The Y axis and the X axis has been log transformed for better visualization.             
+
+
+```{r,message=FALSE,warning=FALSE}
+
+fundedLoanAmountDistribution(AsianLoans)
+
+
+```
+
+## Summary of Funded Amount in **Asia**
+
+```{r,message = FALSE, warning = FALSE}
+
+
+AsianLoans %>%
+   select(funded_amount) %>%
+   summary()
+   
+```
+
+#Americas
+
+##Distribution of loans in Americas
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans = themes_region_combined %>%
+  filter(str_detect(world_region,"America"))
+
+unique(country_loans$world_region)
+
+plotBarPlotLoansInGeography(country_loans)
+
+
+```
+
+
+##Poorest South American Countries from Multidimensional Poverty Measures{.tabset .tabset-fade .tabset-pills}
+
+* **Peru,Suriname,Colombia,Brazil,Ecuador and Guyana** are the poorest countries from the MPI Rural  and MPI Urban perspective
+
+
+###Rural
+
+```{r,message=FALSE,warning=FALSE}
+
+poor_countries_rural <- mpi_national_continent %>%
+  filter(Continent == 'SA') %>%
+  rename(MPIRural = `MPI Rural`) %>%
+  arrange(desc(MPIRural)) %>%
+  head(15) %>%
+  select(Country,MPIRural)
+
+treemap(poor_countries_rural, 
+        index="Country", 
+        vSize = "MPIRural",  
+        title="Poorest Countries Rural Perspective", 
+        palette = "RdBu",
+        fontsize.title = 14 
+)
+
+```
+
+
+###Urban
+
+```{r,message=FALSE,warning=FALSE}
+
+poor_countries_urban <- mpi_national_continent %>%
+  filter(Continent == 'SA') %>%
+  rename(MPIUrban = `MPI Urban`) %>%
+  arrange(desc(MPIUrban)) %>%
+  head(15) %>%
+  select(Country,MPIUrban)
+
+
+treemap(poor_countries_urban, 
+        index="Country", 
+        vSize = "MPIUrban",  
+        title="Poorest Countries Urban Perspective", 
+        palette = "RdBu",
+        fontsize.title = 14 
+)
+
+
+```
+
+##Explore the loans in the Poorest South American countries     
+
+
+```{r,message=FALSE,warning=FALSE}
+ 
+AmericasLoans <- regions %>%
+  select(country,world_region) %>%
+  unique() %>%
+  inner_join(loans) %>%
+  filter(str_detect(world_region,"America"))
+  
+poor_countries_loans <- inner_join(AmericasLoans,poor_countries_rural,
+           by =c("country" = "Country")) %>%
+  group_by(country) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+as.tibble(setdiff(poor_countries_rural$Country,poor_countries_loans$country))
+
+```
+
+The above countries though they feature among the **poorest South American countries from the MPI rural measure** do not feature in Kiva loans. There is a good opportunity for them to be included to be in the Kiva family.   
+
+
+
+##Use of loans in Americas
+
+```{r,message=FALSE,warning=FALSE}
+
+ 
+AmericasLoans <- regions %>%
+  select(country,world_region) %>%
+  unique() %>%
+  inner_join(loans) %>%
+  filter(str_detect(world_region,"America"))
+
+  AmericasLoans %>%
+  filter(!is.na(use)) %>%
+  
+  group_by(use) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(use = reorder(use,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = use,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = use, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Use of Loans', 
+       y = 'Count', 
+       title = 'Use of Loans and Count') +
+     coord_flip() +
+     theme_bw() 
+
+```
+
+##Most Popular Sector in America
+
+The Sector which is the most popular for loans in America is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+ AmericasLoans %>%
+  filter(!is.na(sector)) %>%
+  
+  group_by(sector) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(sector = reorder(sector,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = sector,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = sector, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Sector', 
+       y = 'Count', 
+       title = 'Sector and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+##Distribution of the Funded Loan amount in **America**
+
+The funded loan amount is shown in the form of a histogram. The Y axis and the X axis has been log transformed for better visualization.             
+
+
+```{r,message=FALSE,warning=FALSE}
+
+fundedLoanAmountDistribution(AmericasLoans)
+
+
+```
+
+## Summary of Funded Amount in **America**
+
+```{r,message = FALSE, warning = FALSE}
+
+
+AmericasLoans %>%
+   select(funded_amount) %>%
+   summary()
+   
+```
+
+
+#Philippines{.tabset .tabset-fade .tabset-pills}
+
+##Loans Map
+
+```{r,warning=FALSE,message=FALSE}
+
+country_loans = themes_region %>% 
+  filter(country == "Philippines") %>%
+  rename (themeType = `Loan Theme Type`) 
+
+
+center_lon = median(country_loans$lon,na.rm = TRUE)
+center_lat = median(country_loans$lat,na.rm = TRUE)
+
+
+leaflet(country_loans) %>% addTiles() %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/100) ,
+             color = ~c("blue"))  %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 7) 
+```
+
+
+
+##Most Dominant Field Partner
+
+We plot the most dominant Field partners of Kiva in Philippines 
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans = themes_region %>% 
+  filter(country == "Philippines") %>%
+  rename (themeType = `Loan Theme Type`) 
+
+country_loans$themeType = as.factor(country_loans$themeType)
+country_loans %>%
+  rename(FieldPartnerName =`Field Partner Name`) %>%
+  group_by(FieldPartnerName) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(FieldPartnerName = reorder(FieldPartnerName,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = FieldPartnerName,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = FieldPartnerName, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Field Partner Name', 
+       y = 'Count', 
+       title = 'Field Partner Name and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+##Popular Sector
+
+The Sector which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndSectorByCountry <- function(loans, countryName,fillColor2) {
+  loans %>%
+    filter(country == countryName) %>%
+    group_by(sector) %>%
+    summarise(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    ungroup() %>%
+    mutate(sector = reorder(sector,Count)) %>%
+    head(10) %>%
+    
+    ggplot(aes(x = sector,y = Count)) +
+    geom_bar(stat='identity',colour="white", fill = fillColor2) +
+    geom_text(aes(x = sector, y = 1, label = paste0("(",Count,")",sep="")),
+              hjust=0, vjust=.5, size = 4, colour = 'black',
+              fontface = 'bold') +
+    labs(x = 'Sector', 
+         y = 'Count', 
+         title = 'Sector and Count') +
+    coord_flip() +
+     theme_bw()
+}
+
+plotLoansAndSectorByCountry(loans,"Philippines",fillColor)
+
+```
+
+
+##Popular Activity
+
+The Activity which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndActivityByCountry <- function(loans, countryName,fillColor2) {
+  loans %>%
+    filter(country == countryName) %>%
+    group_by(activity) %>%
+    summarise(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    ungroup() %>%
+    mutate(activity = reorder(activity,Count)) %>%
+    head(10) %>%
+    
+    ggplot(aes(x = activity,y = Count)) +
+    geom_bar(stat='identity',colour="white", fill = fillColor2) +
+    geom_text(aes(x = activity, y = 1, label = paste0("(",Count,")",sep="")),
+              hjust=0, vjust=.5, size = 4, colour = 'black',
+              fontface = 'bold') +
+    labs(x = 'Activity', 
+         y = 'Count', 
+         title = 'Activity and Count') +
+    coord_flip() +
+     theme_bw()
+}
+
+plotLoansAndActivityByCountry(loans,"Philippines",fillColor2)
+
+```
+
+##Popular Use of loans
+
+```{r,message=FALSE,warning=FALSE}
+
+  plotLoansAndUseByCountry <- function(loans, countryName,fillColor2) {
+    loans %>%
+    filter(country == countryName) %>%
+    filter(!is.na(use)) %>%
+    group_by(use) %>%
+    summarise(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    ungroup() %>%
+    mutate(use = reorder(use,Count)) %>%
+    head(10) %>%
+    
+    ggplot(aes(x = use,y = Count)) +
+    geom_bar(stat='identity',colour="white", fill = fillColor2) +
+    geom_text(aes(x = use, y = 1, label = paste0("(",Count,")",sep="")),
+              hjust=0, vjust=.5, size = 4, colour = 'black',
+              fontface = 'bold') +
+    labs(x = 'Use of Loans', 
+         y = 'Count', 
+         title = 'Use of Loans and Count') +
+       coord_flip() +
+       theme_bw() 
+  }
+
+plotLoansAndUseByCountry(loans,"Philippines",fillColorLightCoral)
+
+```
+
+##Loan Amount Distribution
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans = loans %>%
+    filter(country == "Philippines")
+
+fundedLoanAmountDistribution(country_loans)
+
+summary(country_loans$funded_amount)
+
+```
+
+
+##Trend of loans
+
+We show the trend of loans from the years 2014 onwards. The trend shows that the number of loans keep on increasing with time.
+
+```{r,message=FALSE,warning= FALSE}
+
+loansData = loans %>%
+  filter(country == "Philippines") %>%
+  filter(!is.na(funded_time)) %>%
+  mutate(year = year(ymd_hms(funded_time))) %>%
+  mutate(month = month(ymd_hms(funded_time))) %>%
+  filter(!is.na(year)) %>%
+  filter(!is.na(month)) %>%
+  group_by(year,month) %>%
+  summarise(Count = n()) %>%
+  mutate(YearMonth = make_date(year=year,month=month) ) 
+  
+  loansData %>%
+  ggplot(aes(x=YearMonth,y=Count,group = 1)) +
+  geom_line(size=1, color="red")+
+  geom_point(size=3, color="red") +
+  labs(x = 'Time', y = 'Count',title = 'Trend of loans') +
+  theme_bw() 
+
+```
+
+###Data of the loans
+
+```{r,message=FALSE,warning=FALSE}
+
+datatable(loansData, style="bootstrap", class="table-condensed", options = list(dom = 'tp',scrollX = TRUE))
+
+
+```
+
+##Dirty Forecast-ARIMA
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% select(Count)
+
+tsLoans = ts(loansData2$Count)
+
+fit <- auto.arima(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-ETS
+
+```{r,message=FALSE,warning=FALSE}
+
+fit <- ets(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-Prophet
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% 
+  ungroup %>%
+  select(YearMonth,Count)
+
+colnames(loansData2) = c("ds","y")
+
+m <- prophet(loansData2,changepoint.prior.scale = 0.1)
+
+future <- make_future_dataframe(m, periods = 5,freq = "month")
+
+forecast <- predict(m, future)
+
+predictions = tail(round(forecast$yhat),5)
+
+plot(m, forecast)
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+#Kenya{.tabset .tabset-fade .tabset-pills}
+##Loans in Kenya
+
+We show the different types of loans in Kenya in the map.
+
+```{r,warning=FALSE,message=FALSE}
+
+country_loans = themes_region %>% 
+  filter(country == "Kenya") %>%
+  rename (themeType = `Loan Theme Type`) 
+
+
+center_lon = median(country_loans$lon,na.rm = TRUE)
+center_lat = median(country_loans$lat,na.rm = TRUE)
+
+
+leaflet(country_loans) %>% addTiles() %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/100) ,
+             color = ~c("blue"))  %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 5) 
+```
+
+##Most Dominant Field Partner
+
+We plot the most dominant Field partners of Kiva in Kenya 
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans %>%
+  rename(FieldPartnerName =`Field Partner Name`) %>%
+  group_by(FieldPartnerName) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(FieldPartnerName = reorder(FieldPartnerName,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = FieldPartnerName,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = FieldPartnerName, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Field Partner Name', 
+       y = 'Count', 
+       title = 'Field Partner Name and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+
+##Most Popular Sector
+
+The Sector which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndSectorByCountry(loans,"Kenya",fillColor)
+
+```
+
+
+##Most Popular Activity
+
+The Activity which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndActivityByCountry(loans,"Kenya",fillColor2)
+
+```
+
+##Most Popular Use of loans
+
+```{r,message=FALSE,warning=FALSE}
+
+  plotLoansAndUseByCountry(loans,"Kenya",fillColorLightCoral)
+
+```
+
+
+##Loan Amount Distribution
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans = loans %>%
+    filter(country == "Kenya")
+
+fundedLoanAmountDistribution(country_loans)
+
+summary(country_loans$funded_amount)
+
+```
+##Trend of loans
+
+We show the trend of loans from the years 2014 onwards. The trend shows that the number of loans keep on increasing with time.
+
+```{r,message=FALSE,warning= FALSE}
+
+loansData = loans %>%
+  filter(country == "Kenya") %>%
+  filter(!is.na(funded_time)) %>%
+  mutate(year = year(ymd_hms(funded_time))) %>%
+  mutate(month = month(ymd_hms(funded_time))) %>%
+  filter(!is.na(year)) %>%
+  filter(!is.na(month)) %>%
+  group_by(year,month) %>%
+  summarise(Count = n()) %>%
+  mutate(YearMonth = make_date(year=year,month=month) ) 
+  
+  loansData %>%
+  ggplot(aes(x=YearMonth,y=Count,group = 1)) +
+  geom_line(size=1, color="red")+
+  geom_point(size=3, color="red") +
+  labs(x = 'Time', y = 'Count',title = 'Trend of loans') +
+  theme_bw() 
+
+```
+
+###Data of the loans
+
+```{r,message=FALSE,warning=FALSE}
+
+datatable(loansData, style="bootstrap", class="table-condensed", options = list(dom = 'tp',scrollX = TRUE))
+
+
+```
+
+##Dirty Forecast-ARIMA
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% select(Count)
+
+tsLoans = ts(loansData2$Count)
+
+fit <- auto.arima(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-ETS
+
+```{r,message=FALSE,warning=FALSE}
+
+fit <- ets(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-Prophet
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% 
+  ungroup %>%
+  select(YearMonth,Count)
+
+colnames(loansData2) = c("ds","y")
+
+m <- prophet(loansData2,changepoint.prior.scale = 0.1)
+
+future <- make_future_dataframe(m, periods = 5,freq = "month")
+
+forecast <- predict(m, future)
+
+predictions = tail(round(forecast$yhat),5)
+
+plot(m, forecast)
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+#El Salvador{.tabset .tabset-fade .tabset-pills}
+##Loans in El Salvador
+
+We show the different types of loans in El Salvador in the map. 
+
+```{r,warning=FALSE,message=FALSE}
+
+country_loans = themes_region %>% 
+  filter(country == "El Salvador") %>%
+  rename (themeType = `Loan Theme Type`) 
+
+
+center_lon = median(country_loans$lon,na.rm = TRUE)
+center_lat = median(country_loans$lat,na.rm = TRUE)
+
+
+leaflet(country_loans) %>% addTiles() %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/100) ,
+             color = ~c("blue"))  %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 7) 
+```
+
+##Most Dominant Field Partner
+
+We plot the most dominant Field partners of Kiva in El Salvador 
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans %>%
+  rename(FieldPartnerName =`Field Partner Name`) %>%
+  group_by(FieldPartnerName) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(FieldPartnerName = reorder(FieldPartnerName,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = FieldPartnerName,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = FieldPartnerName, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Field Partner Name', 
+       y = 'Count', 
+       title = 'Field Partner Name and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+
+##Most Popular Sector
+
+The Sector which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndSectorByCountry(loans,"El Salvador",fillColor)
+
+```
+
+
+##Most Popular Activity
+
+The Activity which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndActivityByCountry(loans,"El Salvador",fillColor2)
+
+```
+
+##Most Popular Use of loans
+
+```{r,message=FALSE,warning=FALSE}
+
+  plotLoansAndUseByCountry(loans,"El Salvador",fillColorLightCoral)
+
+```
+
+##Loan Amount Distribution
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans = loans %>%
+    filter(country == "El Salvador")
+
+fundedLoanAmountDistribution(country_loans)
+
+summary(country_loans$funded_amount)
+
+```
+
+##Trend of loans
+
+We show the trend of loans from the years 2014 onwards. The trend shows that the number of loans keep on increasing with time.
+
+```{r,message=FALSE,warning= FALSE}
+
+loansData = loans %>%
+  filter(country == "El Salvador") %>%
+  filter(!is.na(funded_time)) %>%
+  mutate(year = year(ymd_hms(funded_time))) %>%
+  mutate(month = month(ymd_hms(funded_time))) %>%
+  filter(!is.na(year)) %>%
+  filter(!is.na(month)) %>%
+  group_by(year,month) %>%
+  summarise(Count = n()) %>%
+  mutate(YearMonth = make_date(year=year,month=month) ) 
+  
+  loansData %>%
+  ggplot(aes(x=YearMonth,y=Count,group = 1)) +
+  geom_line(size=1, color="red")+
+  geom_point(size=3, color="red") +
+  labs(x = 'Time', y = 'Count',title = 'Trend of loans') +
+  theme_bw() 
+
+```
+
+###Data of the loans
+
+```{r,message=FALSE,warning=FALSE}
+
+datatable(loansData, style="bootstrap", class="table-condensed", options = list(dom = 'tp',scrollX = TRUE))
+
+
+```
+
+##Dirty Forecast-ARIMA
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% select(Count)
+
+tsLoans = ts(loansData2$Count)
+
+fit <- auto.arima(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-ETS
+
+```{r,message=FALSE,warning=FALSE}
+
+fit <- ets(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-Prophet
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% 
+  ungroup %>%
+  select(YearMonth,Count)
+
+colnames(loansData2) = c("ds","y")
+
+m <- prophet(loansData2,changepoint.prior.scale = 0.1)
+
+future <- make_future_dataframe(m, periods = 5,freq = "month")
+
+forecast <- predict(m, future)
+
+predictions = tail(round(forecast$yhat),5)
+
+plot(m, forecast)
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+#India{.tabset .tabset-fade .tabset-pills}
+
+##Loans in India
+
+We show the different types of loans in India in the map.We observe that a major part of India is not utilizing Kiva. **An awareness campaign in India about Kiva might be a good idea.**
+
+```{r,warning=FALSE,message=FALSE}
+
+country_loans = themes_region %>% 
+  filter(country == "India") %>%
+  rename (themeType = `Loan Theme Type`) 
+
+
+center_lon = median(country_loans$lon,na.rm = TRUE)
+center_lat = median(country_loans$lat,na.rm = TRUE)
+
+
+leaflet(country_loans) %>% addTiles() %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/10) ,
+             color = ~c("blue"))  %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 5) 
+```
+
+##Most Dominant Field Partner
+
+We plot the most dominant Field partners of Kiva in India 
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans %>%
+  rename(FieldPartnerName =`Field Partner Name`) %>%
+  group_by(FieldPartnerName) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(FieldPartnerName = reorder(FieldPartnerName,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = FieldPartnerName,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = FieldPartnerName, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Field Partner Name', 
+       y = 'Count', 
+       title = 'Field Partner Name and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+
+
+##Most Popular Sector
+
+The Sector which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndSectorByCountry(loans,"India",fillColor)
+
+```
+
+
+##Most Popular Activity
+
+The Activity which is the most popular for loans is provided in the  bar chart below
+
+```{r,message=FALSE,warning=FALSE}
+
+plotLoansAndActivityByCountry(loans,"India",fillColor2)
+
+```
+
+##Most Popular Use of loans
+
+```{r,message=FALSE,warning=FALSE}
+
+  plotLoansAndUseByCountry(loans,"India",fillColorLightCoral)
+
+```
+
+
+
+##Loan Amount Distribution
+
+```{r,message=FALSE,warning=FALSE}
+
+country_loans = loans %>%
+    filter(country == "India")
+
+fundedLoanAmountDistribution(country_loans)
+
+summary(country_loans$funded_amount)
+
+```
+
+##Trend of loans
+
+We show the trend of loans from the years 2014 onwards. The trend shows that the number of loans keep on increasing with time.
+
+```{r,message=FALSE,warning= FALSE}
+
+loansData = loans %>%
+  filter(country == "India") %>%
+  filter(!is.na(funded_time)) %>%
+  mutate(year = year(ymd_hms(funded_time))) %>%
+  mutate(month = month(ymd_hms(funded_time))) %>%
+  filter(!is.na(year)) %>%
+  filter(!is.na(month)) %>%
+  group_by(year,month) %>%
+  summarise(Count = n()) %>%
+  mutate(YearMonth = make_date(year=year,month=month) ) 
+  
+  loansData %>%
+  ggplot(aes(x=YearMonth,y=Count,group = 1)) +
+  geom_line(size=1, color="red")+
+  geom_point(size=3, color="red") +
+  labs(x = 'Time', y = 'Count',title = 'Trend of loans') +
+  theme_bw() 
+
+```
+
+###Data of the loans
+
+```{r,message=FALSE,warning=FALSE}
+
+datatable(loansData, style="bootstrap", class="table-condensed", options = list(dom = 'tp',scrollX = TRUE))
+
+
+```
+
+##Dirty Forecast-ARIMA
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% select(Count)
+
+tsLoans = ts(loansData2$Count)
+
+fit <- auto.arima(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-ETS
+
+```{r,message=FALSE,warning=FALSE}
+
+fit <- ets(tsLoans)
+
+preds = forecast(fit, h = 5)
+
+preds %>% autoplot(include=42) +theme_bw()
+
+predictions = round(as.numeric(preds$mean))
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+##Dirty Forecast-Prophet
+
+```{r,message=FALSE,warning=FALSE}
+
+loansData2 =loansData[1:nrow(loansData)-1,] %>% 
+  ungroup %>%
+  select(YearMonth,Count)
+
+colnames(loansData2) = c("ds","y")
+
+m <- prophet(loansData2,changepoint.prior.scale = 0.1)
+
+future <- make_future_dataframe(m, periods = 5,freq = "month")
+
+forecast <- predict(m, future)
+
+predictions = tail(round(forecast$yhat),5)
+
+plot(m, forecast)
+
+cat("The predictions are ","\n")
+
+predictions
+
+```
+
+
+#Multidimensional Poverty Measures
+
+We use the Kaggle Dataset **Multidimensional Poverty Measures**. The following explains this term and this has been taken from the dataset documentation
+
+>     Most countries of the world define poverty as a lack of money. Yet poor people themselves consider their experience of poverty much more broadly. A person who is poor can suffer from multiple disadvantages at the same time – for example they may have poor health or malnutrition, a lack of clean water or electricity, poor quality of work or little schooling. Focusing on one factor alone, such as income, is not enough to capture the true reality of poverty.
+
+>     Multidimensional poverty measures can be used to create a more comprehensive picture. They reveal who is poor and how they are poor – the range of different disadvantages they experience. As well as providing a headline measure of poverty, multidimensional measures can be broken down to reveal the poverty level in different areas of a country, and among different sub-groups of people.   
+
+
+##MPI Rural
+
+We use the metric **MPI Rural** from the Kaggle Dataset **Multidimensional Poverty Measures**. This metric provides the `Average distance below the poverty line` of those listed as poor in rural areas. This will provide Kiva an understanding on the countries **where loans would be most needed**.      
+
+Niger,Somalia, Ethopia,Burkina Faso and Chad are the poorest from the MPI Rural measure       
+
+
+```{r,message=FALSE,warning=FALSE}
+
+mpi_national %>%
+  rename(mpi_rural = `MPI Rural`) %>%
+  arrange(desc(mpi_rural)) %>%
+  mutate(Country = reorder(Country,mpi_rural)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = Country,y = mpi_rural)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = Country, y = 1, label = paste0("(",mpi_rural,")",sep="")),
+            hjust=1, vjust=1, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Country', 
+       y = 'mpi_rural', 
+       title = 'Country and Count') +
+  coord_flip() +
+  theme_bw()
+
+
+
+```
+
+##MPI Urban
+
+We use the metric **MPI Urban** from the Kaggle Dataset **Multidimensional Poverty Measures**. This metric provides the `Average distance below the poverty line` of those listed as poor in urban areas. This will provide Kiva an understanding on the countries **where loans would be most needed**.        
+
+
+South Sudan,Chad, Somalia,Liberia and Central African Republic are the poorest from the MPI Urban measure       
+
+
+```{r,message=FALSE,warning=FALSE}
+
+mpi_national %>%
+  rename(mpi_urban = `MPI Urban`) %>%
+  arrange(desc(mpi_urban)) %>%
+  mutate(Country = reorder(Country,mpi_urban)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = Country,y = mpi_urban)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = Country, y = 1, label = paste0("(",mpi_urban,")",sep="")),
+            hjust=1, vjust=1, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Country', 
+       y = 'mpi_urban', 
+       title = 'Country and Count') +
+  coord_flip() +
+  theme_bw()
+
+```
+
+##MPI Map
+
+Higher the MPI, poorer is the country. The map clearly shows the poorer countries are centered around Africa.The **Red Dots** indicate that the country is poorer.                 
+
+
+```{r,message=FALSE,warning=FALSE}
+
+pal <- colorNumeric(
+  palette = colorRampPalette(c('green', 'red'))(length(regions$MPI)), 
+  domain = regions$MPI)
+
+regions_no_NA = regions %>%
+  filter(!is.na(lon)) %>%
+  filter(!is.na(lat))
+
+center_lon = median(regions$lon,na.rm = TRUE)
+center_lat = median(regions$lat,na.rm = TRUE)
+
+leaflet(data = regions_no_NA) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng =  ~ lon,
+    lat =  ~ lat,
+    radius = ~ MPI*10,
+    popup =  ~ country,
+    color =  ~ pal(MPI)
+  ) %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 3) %>%
+  
+  addLegend("topleft", pal = pal, values = ~MPI,
+          title = "MPI Map",
+           opacity = 1)
+
+```
+
+
+##MPI Countries and Kiva Loans{.tabset .tabset-fade .tabset-pills}
+
+We show the **High MPI Rural** and **Low MPI Rural** countries with the most loans.**Mali, Sierra Leone,Liberia, Mozambique,Burkina Faso** are the High MPI Rural countries with the most loans.**Armenia,Kyrgyzstan,Albania,Ukraine and Thailand** are the Low MPI Rural countries with the most loans        
+
+
+###High MPI Countries with Kiva Loans
+
+We show the **High MPI Rural** countries with the most loans.**Mali, Sierra Leone,Liberia, Mozambique,Burkina Faso** are the High MPI Rural countries with the most loans.           
+
+```{r,message=FALSE,warning=FALSE}
+
+
+mpi_national_rural_top_10 = mpi_national %>%
+  rename(mpi_rural = `MPI Rural`) %>%
+  arrange(desc(mpi_rural)) %>%
+  mutate(Country = reorder(Country,mpi_rural)) %>%
+  head(15)
+
+mpi_national_rural_top_10_loans <- loans %>%
+  inner_join(mpi_national_rural_top_10,by =c("country" = "Country"))
+
+getTopLoansByCountry <- function(dataset,fillColorName) {
+  dataset %>%
+    group_by(country) %>%
+    summarise(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    ungroup() %>%
+    mutate(country = reorder(country,Count)) %>%
+    head(10) %>%
+    ggplot(aes(x = country,y = Count)) +
+    geom_bar(stat='identity',colour="white", fill = fillColorName) +
+    geom_text(aes(x = country, y = 1, label = paste0("(",Count,")",sep="")),
+              hjust=0, vjust=.5, size = 4, colour = 'black',
+              fontface = 'bold') +
+    labs(x = 'Country', 
+         y = 'Count', 
+         title = 'Country and Count') +
+    coord_flip() +
+     theme_bw()
+}
+
+getTopLoansByCountry(mpi_national_rural_top_10_loans,fillColor2)
+
+
+```
+
+###Low MPI Countries with Kiva Loans
+
+```{r,message=FALSE,warning=FALSE}
+
+mpi_national_rural_bottom_10 = mpi_national %>%
+  rename(mpi_rural = `MPI Rural`) %>%
+  arrange(mpi_rural) %>%
+  mutate(Country = reorder(Country,mpi_rural)) %>%
+  head(15) 
+
+  mpi_national_rural_bottom_10 =  loans %>%
+  inner_join(mpi_national_rural_bottom_10,by =c("country" = "Country"))
+
+ getTopLoansByCountry(mpi_national_rural_bottom_10,fillColor)
+ 
+```
+
+##Use of loans and MPI{.tabset .tabset-fade .tabset-pills}
+
+The loans for High MPI countries are used for `buying condiments, to buy sheep for resale`, to buy contruction materials,to buy building materials, to buy fertilizer for groundnuts, okra and peanuts. The loans for Low MPI countries are used `to buy cows, to pay for her higher education`,to buy some livestock to increase her herd and to buy sheep                  
+
+
+### Use of loans in High MPI Rural Countries        
+
+We show the use of loans in the High MPI Rural countries.
+
+```{r,message=FALSE,warning=FALSE}
+
+  mpi_national_rural_top_10_loans %>%
+  filter(!is.na(use)) %>%
+  
+  group_by(use) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(use = reorder(use,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = use,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor) +
+  geom_text(aes(x = use, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Use of Loans', 
+       y = 'Count', 
+       title = 'Use of Loans and Count in High MPI countries') +
+     coord_flip() +
+     theme_bw() 
+
+
+```
+
+### Use of loans in Low MPI Rural Countries        
+
+We show the use of loans in the Low MPI Rural countries.
+
+```{r,message=FALSE,warning=FALSE}
+
+  mpi_national_rural_bottom_10 %>%
+  filter(!is.na(use)) %>%
+  
+  group_by(use) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(use = reorder(use,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = use,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor) +
+  geom_text(aes(x = use, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Use of Loans', 
+       y = 'Count', 
+       title = 'Use of Loans and Count in Low MPI countries') +
+     coord_flip() +
+     theme_bw() 
+
+
+```
+
+##Sectors of loans and MPI{.tabset .tabset-fade .tabset-pills}
+
+`Food,Retail,Agriculture`,Clothing and Services are the most popular sector for loans in High MPI Rural countries. `Agriculture,Education,Health`,Housing and Clothing are the most popular sector for loans in Low MPI Rural countries
+
+###Most Popular Sector in loans in High MPI Rural Countries 
+
+The Sector which is the most popular for High MPI Rural Countries is provided in the  bar chart below.            
+
+```{r,message=FALSE,warning=FALSE}
+
+ getTopLoansBySector <- function(dataset,fillColorName,titleName) {
+   dataset %>%
+    filter(!is.na(sector)) %>%
+    
+    group_by(sector) %>%
+    summarise(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    ungroup() %>%
+    mutate(sector = reorder(sector,Count)) %>%
+    head(10) %>%
+    
+    ggplot(aes(x = sector,y = Count)) +
+    geom_bar(stat='identity',colour="white", fill = fillColorName) +
+    geom_text(aes(x = sector, y = 1, label = paste0("(",Count,")",sep="")),
+              hjust=0, vjust=.5, size = 4, colour = 'black',
+              fontface = 'bold') +
+    labs(x = 'Sector', 
+         y = 'Count', 
+         title = titleName) +
+    coord_flip() +
+     theme_bw()
+ }
+
+getTopLoansBySector(mpi_national_rural_top_10_loans,fillColor,
+                    'Most Popular Sectors in High MPI Rural Countries')
+
+```
+
+
+### Most Popular Sector in loans in Low MPI Rural Countries
+
+```{r,message=FALSE,warning=FALSE}
+
+getTopLoansBySector(mpi_national_rural_bottom_10,fillColor,
+                    'Most Popular Sectors in Low MPI Rural Countries')
+
+```
+
+
+##Distribution of the Funded Loan amount{.tabset .tabset-fade .tabset-pills}              
+
+
+High MPI Countries have **Median Funded Loan Amount** is **$600**  and Low MPI Countries have Median Funded Loan Amount is **$1100**    
+
+###Distribution of the Funded Loan amount in High MPI countries
+
+The funded loan amount is shown in the form of a histogram. The Y axis and the X axis has been log transformed for better visualization.             
+
+
+```{r,message=FALSE,warning=FALSE}
+
+fundedLoanAmountDistribution(mpi_national_rural_top_10_loans)
+
+
+```
+
+**Summary** of Funded Amount in **High MPI countries**
+
+```{r,message = FALSE, warning = FALSE}
+
+
+mpi_national_rural_top_10_loans %>%
+   select(funded_amount) %>%
+   summary()
+   
+```
+
+
+###Distribution of the Funded Loan amount in Low MPI countries
+
+The funded loan amount is shown in the form of a histogram. The Y axis and the X axis has been log transformed for better visualization.             
+
+
+```{r,message=FALSE,warning=FALSE}
+
+fundedLoanAmountDistribution(mpi_national_rural_bottom_10)
+
+
+```
+
+**Summary** of Funded Amount in **Low MPI countries**
+
+```{r,message = FALSE, warning = FALSE}
+
+
+mpi_national_rural_bottom_10 %>%
+   select(funded_amount) %>%
+   summary()
+   
+```
+
+
+
+
+
+
+##Poorest Regions
+
+We explore the **Poorest Regions** in the world. We use the Metric `Intensity of Deprivation Regional`. 
+
+**Lac in Chad** is the poorest region followed by Affar in Ethopia, Est in Burkina Faso, Ouaddað and Wadi Fira in Chad.           
+
+
+
+```{r,message=FALSE,warning=FALSE}
+
+poorest_regions = mpi_subnational %>%
+  rename(intensity_deprivation_regional = `Intensity of deprivation Regional`) %>%
+  rename(sub_national_region = `Sub-national region`) %>%
+  arrange(desc(intensity_deprivation_regional)) 
+  
+  
+  datatable(head(poorest_regions,10), style="bootstrap", class="table-condensed", options = list(dom = 'tp',scrollX = TRUE))
+
+
+```
+
+
+
+
+#Human Development Index
+
+`Sierra Leone` , `Eritrea` , `South Sudan` , `Mozambique`, `Guinea`, `Burundi`, `Burkina Faso`, `Chad` , `Niger` and `Central African Republic` are countries with the **lowest Human Development Index**               
+Kiva should direct the loans to these countries.
+
+```{r,message=FALSE,warning=FALSE}
+
+GEconV4_lat_lon = GEconV4 %>%
+  group_by(COUNTRY) %>%
+  mutate(lat = median(LAT,na.rm = TRUE)) %>%
+  mutate(lon =  median(LONGITUDE,na.rm = TRUE)) %>%
+  select(COUNTRY,lat,lon) %>%
+  unique()
+
+country_stats_lat_lon = inner_join(country_stats,GEconV4_lat_lon,by =c('country_name'= 'COUNTRY'))
+
+country_stats %>%
+  arrange(hdi) %>%
+  mutate(Country = reorder(country_name,hdi)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = Country,y = hdi)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = Country, y = 1, label = paste0("(",round(hdi,3),")",sep="")),
+            hjust=0, vjust=0, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Country', 
+       y = 'hdi', 
+       title = 'Countries with Lowest Human Development Index') +
+  coord_flip() +
+  theme_bw()
+
+```
+
+
+##Human Development Index Map
+
+The **more red the circles**, the lesser is the Human Development Index. African continent has very low HDI and Kiva should focus on loans on this belt.               
+
+
+```{r,message=FALSE,warning=FALSE}
+
+pal <- colorNumeric(
+  palette = colorRampPalette(c('red', 'green'))(length(country_stats$hdi)), 
+  domain = country_stats$hdi)
+
+country_stats_lat_lon_no_NA = country_stats_lat_lon %>%
+  filter(!is.na(hdi)) %>%
+  filter(!is.na(lon)) %>%
+  filter(!is.na(lat))
+
+center_lon = median(country_stats_lat_lon_no_NA$lon,na.rm = TRUE)
+center_lat = median(country_stats_lat_lon_no_NA$lat,na.rm = TRUE)
+
+leaflet(data = country_stats_lat_lon_no_NA) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng =  ~ lon,
+    lat =  ~ lat,
+    radius = ~ hdi*10,
+    popup =  ~ country_name,
+    color =  ~ pal(hdi)
+  ) %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 2) %>%
+  
+  addLegend("topleft", pal = pal, values = ~hdi,
+          title = "Human Development Index Map",
+           opacity = 1)
+```
+
+
+#Population below Poverty Line
+
+`Syria`,`Zimbabwe`,`Madagascar`,`Sierra Leone`,`Suriname`,`Nigeria`,`Guinea-Bissau`,`Burundi`,`Swaziland` and `Democratic Republic of Congo` are the countries which have the highest population below poverty line.   
+
+
+```{r,message=FALSE,warning=FALSE}
+
+country_stats %>%
+  arrange(desc(population_below_poverty_line)) %>%
+  mutate(Country = reorder(country_name,population_below_poverty_line)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = Country,y = population_below_poverty_line)) +
+  geom_bar(stat='identity',colour="white", fill = fillColorLightCoral) +
+  geom_text(aes(x = Country, y = 1, label = paste0("(",population_below_poverty_line,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Country', 
+       y = 'Population Below Poverty Line', 
+       title = 'Countries with Highest Population Below Poverty Line') +
+  coord_flip() +
+  theme_bw()
+
+
+```
+
+##Population under Poverty Line Map
+
+```{r,message=FALSE,warning=FALSE}
+
+pal <- colorNumeric(
+  palette = colorRampPalette(c('green', 'red'))(length(country_stats$population_below_poverty_line)), 
+  domain = country_stats$population_below_poverty_line)
+
+country_stats_lat_lon_no_NA = country_stats_lat_lon %>%
+  filter(!is.na(population_below_poverty_line)) %>%
+  filter(!is.na(lon)) %>%
+  filter(!is.na(lat))
+
+center_lon = median(country_stats_lat_lon_no_NA$lon,na.rm = TRUE)
+center_lat = median(country_stats_lat_lon_no_NA$lat,na.rm = TRUE)
+
+leaflet(data = country_stats_lat_lon_no_NA) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng =  ~ lon,
+    lat =  ~ lat,
+    radius = ~ population_below_poverty_line/10,
+    popup =  ~ country_name,
+    color =  ~ pal(population_below_poverty_line)
+  ) %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 2) %>%
+  
+  addLegend("topleft", pal = pal, values = ~population_below_poverty_line,
+          title = "Population under Povery Line Map",
+           opacity = 1)
+```
+
+
+#Most Dominant Field Partner
+
+The Top **Ten Field Partners** accounting for most of the loans are provided below
+
+```{r,message=FALSE,warning=FALSE}
+
+themes_region %>%
+  rename(FieldPartnerName =`Field Partner Name`) %>%
+  group_by(FieldPartnerName) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>%
+  mutate(FieldPartnerName = reorder(FieldPartnerName,Count)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = FieldPartnerName,y = Count)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor) +
+  geom_text(aes(x = FieldPartnerName, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Field Partner Name', 
+       y = 'Count', 
+       title = 'Field Partner Name and Count') +
+  coord_flip() +
+   theme_bw()
+
+```
+
+#Naive Poverty Metric
+
+The **Naive Poverty Metric** is calculated on the `Population below Poverty Line` , `Human Development Index`, `MPI Urban` and `MPI Rural`              
+
+
+```{r,message = FALSE, warning = FALSE}
+
+country_stats = left_join(country_stats,mpi_national,by =c('country_name'= 'Country'))
+
+
+
+country_stats_AG = country_stats %>% 
+  select(population_below_poverty_line,hdi,country_name,`MPI Urban`,`MPI Rural`) %>%
+  mutate(AGMetric = 
+(country_stats$population_below_poverty_line)/100 + 
+  (1-country_stats$hdi) +
+ `MPI Urban` +
+   `MPI Rural`
+)
+
+```
+
+##Distribution of the Naive Poverty Metric
+
+```{r,message=FALSE,warning=FALSE}
+
+country_stats_AG %>%
+    ggplot(aes(x = AGMetric) )+
+    geom_histogram(fill = fillColorLightCoral,bins=100) +
+    labs(x = 'Naive Poverty Metric' ,y = 'Count', title = paste("Distribution of", "Naive Poverty Metric")) +   theme_bw()
+
+
+```
+
+
+
+## Poorest Countries based on Naive Poverty Metric
+
+`Nigeria`, `Guinea`, `Burkina Faso`, `Liberia` ,`Burundi`, `Guinea-Bissau`, `Chad`, `Niger`, `Sierra Leone` and `South Sudan` are the poorest according to the **Naive Poverty Metric**              
+
+
+```{r,message=FALSE,warning=FALSE}
+
+country_stats_AG %>%
+  arrange(desc(AGMetric)) %>%
+  mutate(Country = reorder(country_name,AGMetric)) %>%
+  head(10) %>%
+  
+  ggplot(aes(x = Country,y = AGMetric)) +
+  geom_bar(stat='identity',colour="white", fill = fillColor2) +
+  geom_text(aes(x = Country, y = 1, label = paste0("(",round(AGMetric,2),")",sep="")),
+            hjust=1, vjust=0, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Country', 
+       y = 'AGMetric', 
+       title = 'Countries with Highest Naive Poverty Metric') +
+  coord_flip() +
+  theme_bw()
+
+
+```
+
+
+#Kenya Demographic and Health Survey analysis
+
+We investigate the Kiva Demographic and Health Surveys here.               
+
+From the report of Demographic and Health Surveys found [here](https://dhsprogram.com/pubs/pdf/cr6/cr6.pdf)
+
+>  Typically, fertility surveys and demographic and health surveys have included little information
+on economic status. In the past, socioeconomic status has been determined using the education level of
+the respondent and/or spouse, sometimes in combination with their own or their spouse’s occupation. A
+few studies have used household construction, mostly type of flooring, as an economic indicator, and
+some others have combined several housing characteristics into ad hoc indexes. The DHS wealth index is
+an attempt to make better use of existing data in the Demographic and Health Surveys in a systematic
+fashion to determine a household’s relative economic status.   
+
+<hr/>
+Section **Modelling**
+<hr/>
+
+We use the data ( `latitude` ,`longtitude`, `DHS Cluster` ) to predict the `DHS Cluster`. The predicted DHS Cluster can provide the **Asset Indicator** . This can be used for providing loans.           
+
+
+##Asset Indicator distribution{.tabset .tabset-fade .tabset-pills}
+
+### Maps
+
+```{r,message=FALSE,warning=FALSE}
+
+getAssetIndicatorPerCountry <- function(kiva_dhs, countryName) {
+  country_asset_poverty_index = kiva_dhs %>%
+    filter(country == countryName) %>%
+    arrange(desc(AssetInd.median)) %>%
+    select(DHSCLUST,mpi_region,AssetInd.median,MPI.median,Nightlights_Composite,Travel_Times,lat,lon) %>%
+    unique() %>%
+    mutate(mpi_region = reorder(mpi_region,AssetInd.median)) 
+  
+  return(country_asset_poverty_index)
+}
+
+country_asset_poverty_index = getAssetIndicatorPerCountry(kiva_dhs,"Kenya")
+  
+  drawMapAssetIndicator <- function(country_asset_poverty_index) {
+    pal <- colorNumeric(
+      palette = colorRampPalette(c('red', 'green'))(length(country_asset_poverty_index$AssetInd.median)), 
+      domain = country_asset_poverty_index$AssetInd.median)
+    
+    country_asset_poverty_index = country_asset_poverty_index %>%
+      filter(!is.na(lon)) %>%
+      filter(!is.na(lat))
+    
+    center_lon = median(country_asset_poverty_index$lon,na.rm = TRUE)
+    center_lat = median(country_asset_poverty_index$lat,na.rm = TRUE)
+    
+    leaflet(data = country_asset_poverty_index) %>%
+      addTiles() %>%
+      addCircleMarkers(
+        lng =  ~ lon,
+        lat =  ~ lat,
+        radius = ~ abs(AssetInd.median)/1e5,
+        popup =  ~ mpi_region,
+        color =  ~ pal(AssetInd.median)
+      ) %>%
+      # controls
+      setView(lng=center_lon, lat=center_lat,zoom = 6) %>%
+      
+      addLegend("topleft", pal = pal, values = ~AssetInd.median,
+                title = "AssetInd.median Map",
+                opacity = 1)
+  }
+  
+  drawMapAssetIndicator(country_asset_poverty_index)
+
+
+```
+
+###High Asset Indicator  DHS Clusters
+
+```{r,message=FALSE,warning=FALSE}
+
+country_asset_poverty_index %>% 
+  head(10) %>%
+  kable()
+
+```
+
+###Low Asset Indicator DHS Clusters
+
+```{r,message=FALSE,warning=FALSE}
+
+country_asset_poverty_index %>% 
+  tail(10) %>%
+  kable()
+
+```
+
+##Asset Indicator and MPI
+
+`Lower` the Asset Indicator, `higher` is the MPI , therefore **poorer** is the cluster.            
+
+```{r,message=FALSE,warning=FALSE}
+
+plotAssetIndicatorAndMPI <- function() {
+  country_asset_poverty_index %>% 
+    filter(!is.na(MPI.median)) %>% 
+    filter(!is.na(AssetInd.median)) %>% 
+    
+    
+    ggplot(aes(x=MPI.median ,y=AssetInd.median))+
+    geom_point(color = "blue")+
+    
+    stat_smooth(aes(x=MPI.median,y=AssetInd.median),method="lm", color="red")+
+    theme_bw()+
+    theme(axis.title = element_text(size=16),axis.text = element_text(size=14))+
+    xlab("(MPI.median)")+
+    ylab("AssetInd.median")
+}
+
+plotAssetIndicatorAndMPI()
+
+```
+
+##Distribution Asset Inidcator
+
+```{r,message=FALSE,warning=FALSE}
+
+country_asset_poverty_index %>%
+  ggplot(aes(x = AssetInd.median)) +
+  geom_histogram(bins = 30,fill = fillColor2) +
+  labs(x= 'AssetInd.median',y = 'Count', title = paste("Distribution of", ' Asset Indicator ')) +
+  theme_bw()
+
+summary(country_asset_poverty_index$AssetInd.median)
+
+```
+
+##Travel Times and MPI
+
+`Higher` the Travel Time, `higher` is the MPI , therefore **poorer** is the cluster.            
+
+```{r,message=FALSE,warning=FALSE}
+
+plotTravelTimesAndMPI <- function() {
+  country_asset_poverty_index %>% 
+    filter(!is.na(MPI.median)) %>% 
+    filter(!is.na(Travel_Times)) %>% 
+    filter(Travel_Times > 0) %>%
+    
+    ggplot(aes(x=MPI.median ,y=Travel_Times))+
+    geom_point(color = "blue")+
+    
+    stat_smooth(aes(x=MPI.median,y=Travel_Times),method="lm", color="red")+
+    theme_bw()+
+    theme(axis.title = element_text(size=16),axis.text = element_text(size=14))+
+    xlab("(MPI.median)")+
+    ylab("Travel_Times")
+}
+
+plotTravelTimesAndMPI()
+
+```
+
+
+
+## NightLights Distribution
+
+`NightLights Composite measure` is the average radiance of the cells whose centroid falls within a radius of 10 km (for rural points) or 2 km (for urban points).              
+
+
+```{r,message=FALSE,warning=FALSE}
+
+ drawNightLightsComposite <- function(country_asset_poverty_index) {
+    
+   pal <- colorNumeric(
+      palette = colorRampPalette(c('red', 'green'))(length(country_asset_poverty_index$Nightlights_Composite)), 
+      domain = country_asset_poverty_index$Nightlights_Composite)
+    
+    country_asset_poverty_index = country_asset_poverty_index %>%
+      filter(!is.na(lon)) %>%
+      filter(!is.na(lat))
+    
+    center_lon = median(country_asset_poverty_index$lon,na.rm = TRUE)
+    center_lat = median(country_asset_poverty_index$lat,na.rm = TRUE)
+    
+    leaflet(data = country_asset_poverty_index) %>%
+      addTiles() %>%
+      addCircleMarkers(
+        lng =  ~ lon,
+        lat =  ~ lat,
+        radius = ~ abs(Nightlights_Composite)/1e4,
+        popup =  ~ mpi_region,
+        color =  ~ pal(Nightlights_Composite)
+      ) %>%
+      # controls
+      setView(lng=center_lon, lat=center_lat,zoom = 6) %>%
+      
+      addLegend("topleft", pal = pal, values = ~Nightlights_Composite,
+                title = "Night Lights Map",
+                opacity = 1)
+  }
+
+drawNightLightsComposite(country_asset_poverty_index)
+
+```
+
+
+##Number of DHS Clusters
+
+```{r,message=FALSE,warning=FALSE}
+
+length(unique(country_asset_poverty_index$DHSCLUST))
+
+
+```
+
+
+##Modelling
+
+We would like to get the Asset Indicator given the latitude and longtitude. For this we would use the data of a particluar country. In this case.the dataset used for modelling is the Kenya DHS Cluster dataset.    
+
+We build a model using the latitude, longitude and the target variable is the **DHS Cluster**.  Once we get the latitude and longitude of a place where we do not know the DHS Cluster, we can predict the DHS cluster and the Asset Indicator associated with the DHS Cluster.            
+
+
+
+###Prediction variable
+
+We would like to predict the **DHS Cluster** of the loan                 
+
+###Columns for modelling
+
+```{r,message=FALSE,warning=FALSE}
+
+country_asset_poverty_index2 <- country_asset_poverty_index %>%
+  select(lat,lon,DHSCLUST)
+
+names(country_asset_poverty_index2)
+
+```
+
+
+### XGBoost
+
+We fit a `XGBoost` model using Cross Validation. We are using the `caret` package for training the model.     
+```{r,message=FALSE,warning=FALSE}
+
+formula =  DHSCLUST ~ .
+
+country_asset_poverty_index2$DHSCLUST = as.factor(country_asset_poverty_index2$DHSCLUST)
+levels(country_asset_poverty_index2$DHSCLUST) = make.names(unique(country_asset_poverty_index2$DHSCLUST))
+
+fitControl <- trainControl(method="none",number = 3,classProbs = TRUE,summaryFunction=mnLogLoss)
+
+xgbGrid <- expand.grid(nrounds = 3,
+                       max_depth = 3,
+                       eta = .05,
+                       gamma = 0,
+                       colsample_bytree = .8,
+                       min_child_weight = 1,
+                       subsample = 1)
+
+set.seed(13)
+
+DHS_XGB = train(formula, data = country_asset_poverty_index2,
+                        method = "xgbTree",trControl = fitControl,
+                        tuneGrid = xgbGrid,na.action = na.pass,
+                        objective='multi:softprob',metric = "logLoss",
+                   num_class=length(unique(country_asset_poverty_index2$DHSCLUST)))
+
+
+
+```
+
+
+### The Model Details 
+
+```{r,message=FALSE,warning=FALSE}
+
+DHS_XGB
+
+```

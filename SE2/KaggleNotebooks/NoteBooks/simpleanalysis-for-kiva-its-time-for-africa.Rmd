@@ -1,0 +1,613 @@
+---
+title: "KIVA Analysis"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **KIVA** - AN INTRODUCTION
+
+
+   Kiva Microfunds (commonly known by its domain name, Kiva.org) is a 501(c)(3) non-profit organization that allows people to lend money via the Internet to low-income entrepreneurs and students in over 80 countries. Kiva's mission is “to connect people through lending to alleviate poverty.Kiva operates two models—Kiva.org and KivaZip.org. Kiva.org relies on a network of field partners to administer the loans on the ground.Kiva is headquartered in San Francisco, California.
+   
+***
+***
+# OBJECTIVE
+
+Estimation of Welfare Level of Borrowers Categorized on the Basis of Areas Classified By Shared Economic And Demographic Characterstics
+
+
+***
+***   
+# OBJECTIVE OF NOTEBOOK
+
+  An analysis of the data provided by **KIVA** encompassing detailed discussion of ideas for aditional data sources, by supportive usage of graphs and plots to make the results more interactive.
+
+***
+***
+ 
+# A Note from a Beginner
+
+  As a new member in the community of **Kaggle** this is my first Kernel. While best efforts have been put to avoid any form of misinterpretation of data,inadvertent errors might have crept in. Constructive criticisms and honest reviews are widely welcomed.  
+
+***
+***          
+
+
+# Libraries 
+
+```{r,message=FALSE,warning=FALSE}
+library(readr)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(mosaic)
+library(magrittr)
+library(wordcloud) #  wordcloud
+library(DT)       # table format display of data
+library(leaflet) # maps
+library(highcharter)
+library(igraph) #  graphs
+library(plotly)
+```
+
+
+## Loading the dataset
+
+```{r,message=FALSE,warning=FALSE}
+rm(list=ls())
+
+
+loans <- read.csv("../input/kiva_loans.csv")
+location <- read_csv("../input/kiva_mpi_region_locations.csv")
+loan_theme <- read_csv("../input/loan_theme_ids.csv")
+loan_themes_region <- read_csv("../input/loan_themes_by_region.csv")
+
+
+ 
+```
+
+## Null Value Identifications
+
+ To avoid discrepancies in the analysis of data,identification of null values in the dataset is necessary.The table below shows the attributes with the percentage of null values it contains.
+
+<br>
+
+## Null Value identifications in loans
+
+
+```{r,fig.width=12, fig.height=10,  Null_Value_identifications_in_loans}
+x<- colMeans(is.na(loans))
+distribution<- x[x>0]
+t<-data.frame(distribution)
+
+colnames(t) <- "Percentage"
+t$Percentage <- t$Percentage *100
+
+    d = data.frame(
+      t,
+      stringsAsFactors = TRUE
+    )
+    dt <- datatable(d, filter = 'bottom', options = list(pageLength = 8))
+    dt
+    
+
+```
+
+
+## Null Value identification in loan_theme
+
+```{r,fig.width=12, fig.height=10,  Null_Value_identifications_in_loan_theme}
+x<- colMeans(is.na(loan_theme))
+distribution<- x[x>0]
+t<-data.frame(distribution)
+
+colnames(t) <- "Percentage"
+t$Percentage <- t$Percentage *100
+
+require('DT')
+    d = data.frame(
+      t,
+      stringsAsFactors = TRUE
+    )
+    dt <- datatable(d, filter = 'bottom', options = list(pageLength = 8))
+    dt
+    
+```
+
+
+
+## Null Values in Location
+
+```{r,fig.width=12, fig.height=10,  Null_Value_identifications_in_location}
+x<- colMeans(is.na(location))
+distribution<- x[x>0]
+t<-data.frame(distribution)
+
+colnames(t) <- "Percentage"
+t$Percentage <- t$Percentage *100
+
+require('DT')
+    d = data.frame(
+      t,
+      stringsAsFactors = TRUE
+    )
+    dt <- datatable(d, filter = 'bottom', options = list(pageLength = 8))
+    dt
+    
+```
+
+
+# The Grant of Loans - Country Specific
+
+```{r,fig.width=12, fig.height=10,  Grant_OF_Loan}
+loans %>%
+  group_by(country) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  ungroup() %>% 
+  mutate(country = reorder(country,Count)) %>%
+  head(10) %>%
+    
+ ggplot(aes(x = country,y = Count)) +
+  geom_bar(stat='identity',colour="white",fill = " dark green") +
+  geom_text(aes(x = country, y = 1, label = paste0("(",Count,")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'country', 
+       y = 'Count' 
+       ) +
+ 
+   theme_light()
+
+
+  
+```
+
+
+
+As a result of the analysis it is evident that **Phillipines** is the country which ranks highest among the brrower of loans.
+
+ 
+***
+
+***
+
+# Sector Wise Analysis on the Basis of Amount of Loans
+
+```{r,message=FALSE,warning=FALSE}
+table_loan_sector <- table(loans$sector )
+names_loan_sector <- row.names(table_loan_sector)
+
+m = list(
+  l = 200,
+  r = 40,
+  b = 100,
+  t = 50,
+  pad = 10
+) 
+
+data <- data.frame(names_loan_sector, table_loan_sector)
+
+p <- plot_ly(data, x = ~names_loan_sector, y = ~table_loan_sector, type = 'bar',
+        marker = list(color = 'rgb(158,202,225)',
+                      line = list(color = 'rgb(108,48,107)',
+                                  width = 1.5))) %>%
+  layout(title = "Sector  Analysis",
+         xaxis = list(title = ""),
+         yaxis = list(title = ""))
+p %>% layout(autosize = F, margin = m)
+
+```
+
+
+From the given dataset the sectors of **Agriculture** and **Food** hold the top positions in terms of borrowing of loans.
+
+***
+
+***
+
+
+# Basic barplots
+```{r,message=FALSE,warning=FALSE}
+par(mfrow=c(1,3))
+hist(loans$funded_amount, col="green")
+hist(loans$loan_amount, col="red")
+hist(loans$term_in_months, col="blue")
+```
+
+***
+
+**Summary**: Let's examine the distribution on some of the loans features. Here's what I found:
+
+* ***Funded Amount*** -  There is a huge spike for funded amounts in the first quarter.
+
+* ***Loan Amount*** -  Loan Amount has a simillar spike as that of funded amount.
+
+* ***Terms in Months*** -  There is a huge spike for loans in the initial months which is between 0 and 25
+
+
+***
+# Funded Amount
+```{r,message=FALSE,warning=FALSE}
+table_term_month <- table(loans$funded_amount )
+names_term_month <- row.names(table_term_month)
+
+
+data <- data.frame(names_term_month, table_term_month)
+
+p <- plot_ly(data, x = ~names_term_month, y = ~table_term_month, type = 'bar',
+        marker = list(color = 'rgb(158,202,225)',
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5))) %>%
+  layout(title = "Fundeed Amount Analysis",
+         xaxis = list(title = ""),
+         yaxis = list(title = ""))
+p
+```
+
+***
+
+**Summary**: Let's examine the funded amount that being distributed:
+
+* ***Funded Amount*** -  The initial quarter has the big crowd.
+
+
+
+# Analysis of Loans - Gender Based. 
+
+```{r,message=FALSE,warning=FALSE}
+ loans$borr <- if_else((loans$borrower_genders == "female"), "female","male")
+ k<- data.frame(table(loans$country[loans$borr == "female"]))
+
+ k<-as.data.frame(table(loans$borr))
+
+p <- plot_ly(k, labels = ~Var1, values = ~Freq, type = 'pie') %>%
+  layout(
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+p
+```
+
+
+***
+
+**Summary**: Let's examine the distribution  of the loans on basis of Gender:
+
+* ***Female*** wins it all with a whopping 63.9 % .
+
+* ***Male*** with a 240,482 numbers could contribute upto 36% of whole population of borrowers.
+
+***Why it would be?*** :  
+ 
+* Is ***Female*** are getting any particular privilleges than the counter part. 
+  IS ***KIVA*** being Partial ? Or Just Coincidence?
+
+
+***
+
+## Drill down on Female Category
+
+
+
+```{r,message=FALSE,warning=FALSE}
+
+
+library(dplyr)
+x<- data.frame(table(loans$country[loans$borr == "female"]) )
+k<- data.frame(table(loans$country))
+innerjoin_RM <- merge(x,k,by = "Var1")
+
+
+names_RM <- innerjoin_RM$Var1
+
+text <- round( (innerjoin_RM$Freq.x/ innerjoin_RM$Freq.y)*100,digits = 2)
+text <- paste(text, "%Female" )
+
+data <- data.frame(names_RM, innerjoin_RM$Freq.x, innerjoin_RM$Freq.y - innerjoin_RM$Freq.x)
+
+p <- plot_ly(data, x = ~names_RM, y = ~innerjoin_RM$Freq.x, type = 'bar', text = text ,name = 'Female') %>%
+  add_trace(y = ~innerjoin_RM$Freq.y - innerjoin_RM$Freq.x, name = 'Male') %>%
+  layout(margin = list(b = 160),yaxis = list(title = 'Count'), barmode = 'stack')
+p
+
+
+```
+
+
+***
+
+**Summary**: Let's examine the distribution  of the loans on basis of Female gender:
+
+* ***Phillipines*** tops with 151.984K for female category (96 %).
+
+* ***Kenya*** with a 49.791k gets the second spot in amount of loans borrowed by female borrowers(65.5 %).
+
+* ***Pakistan*** is an another country with 93 % of female participation.Amazing right?
+
+* Interestingly ***Combodia*** is a country where 80% of men are in for loans.
+
+***Why it would be?*** : 
+
+*  What is it with Phillipines,Pakistan,Kenya in common ? Maybe have to dig deeper?
+
+
+***
+
+# Anything to do with sector?
+```{r,message=FALSE,warning=FALSE}
+library(dplyr)
+x<- data.frame(table(loans$sector[loans$borr == "female"]) )
+k<- data.frame(table(loans$sector))
+innerjoin_RM <- merge(x,k,by = "Var1")
+
+
+names_RM <- innerjoin_RM$Var1
+
+text <- round( (innerjoin_RM$Freq.x/ innerjoin_RM$Freq.y)*100,digits = 2)
+text <- paste(text, "%Female" )
+
+data <- data.frame(names_RM, innerjoin_RM$Freq.x, innerjoin_RM$Freq.y - innerjoin_RM$Freq.x)
+
+p <- plot_ly(data, x = ~names_RM, y = ~innerjoin_RM$Freq.x, type = 'bar', text = text ,name = 'Female') %>%
+  add_trace(y = ~innerjoin_RM$Freq.y - innerjoin_RM$Freq.x, name = 'Male') %>%
+  layout(margin = list(b = 160),yaxis = list(title = 'Count'), barmode = 'stack')
+p
+```
+
+
+
+***
+
+**Summary**: Let's examine the Sector with Gender:
+
+* Looks like ***Retail*** is being the preferred sector for women.
+
+* ***Food** and ***Arts***  are the ones that follows in. 
+
+* ***Agriculture*** is the sector which bags the first position in total borrowers.
+
+
+
+***Why it would be?*** : 
+
+*  ***Agriculture***,***Food***,***Retail*** are the topmost sectors where loans are being borrowed.
+*  Basic needs of every human being is water,food,shelter.What we have here rese
+*  mbles the same.
+
+
+***
+
+# The regularities and irregularities of payback
+
+
+```{r,message=FALSE,warning=FALSE}
+
+ k<- data.frame(table(loans$repayment_interval))
+
+
+p <- plot_ly(k, labels = ~Var1, values = ~Freq, type = 'pie') %>%
+  layout(margin = list(b = 160),
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+p
+```
+
+
+***
+
+**Summary**: Let's examine the repayment modes:
+
+* ***Monthly*** is the mode most number of borrower rely on to payback the loans(51%) .
+
+* An alarming 31% loans are being payed back in ***irregular*** intervals.
+
+
+
+***Why it would be?*** : 
+
+*  ***Monthly*** being the most preferred mode of payment is what we could have guessed
+
+*  But isn't it alarming of the 31% who pays back ***irregularly***? Are we losing something here? Which countries would fall in this category?
+
+* Any ideas of what really ***Bullet*** mode of payment means?
+
+
+***
+
+
+# Repayment Modes w.r.t Countries
+```{r,message=FALSE,warning=FALSE}
+ p <- (loans %>% count(country, repayment_interval) %>%
+plot_ly(x = ~country, y = ~n, color = ~repayment_interval))
+p
+```
+
+***
+
+*  NB :Click on the repayment modes option for specific mode classification
+
+**Summary**: Repayment modes in countries :
+
+* ***Philippines*** with 144.954K is the largest competitor in irregular repayment mode.
+
+* ***Kenya*** is the country which tops in Monthly repayment mode.
+
+* Only ***Kenya*** uses Weekly mode for repayment.
+
+* In ***Bullet*** Mode Kenya ,Colombia,Nigeria tops the list.
+
+
+
+***
+
+
+
+## Monthly Repayment Modes
+```{r,message=FALSE,warning=FALSE}
+
+table_term_month <- table(loans$country[loans$repayment_interval == "monthly"] )
+names_term_month <- row.names(table_term_month)
+
+
+data <- data.frame(names_term_month, table_term_month)
+
+p <- plot_ly(data, x = ~names_term_month, y = ~table_term_month, type = 'bar',
+        marker = list(color = 'rgb(158,202,225)',
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5))) %>%
+  layout(margin = list(b = 160),title = "Monthly Repayment Analysis",
+         xaxis = list(title = ""),
+         yaxis = list(title = ""))
+p
+```
+
+***
+
+**Summary**: Monthly Repayment mode :
+
+* In ***Monthly*** mode, Kenya,ElSavdor,Cambodia are the countries which tops.
+
+
+
+***
+
+## Bullet Repayment Mode
+
+  In banking and finance, a bullet loan is a loan where a payment of the entire principal of the loan, and sometimes the principal and interest, is due at the end of the loan term. Likewise for bullet bond. A bullet loan can be a mortgage, bond, note or any other type of credit.It is also sometimes known as EMI Free Loan.
+  
+```{r,message=FALSE,warning=FALSE}
+table_term_month <- table(loans$country[loans$repayment_interval == "bullet"] )
+names_term_month <- row.names(table_term_month)
+
+
+data <- data.frame(names_term_month, table_term_month)
+
+p <- plot_ly(data, x = ~names_term_month, y = ~table_term_month, type = 'bar',
+        marker = list(color = 'rgb(158,202,225)',
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5))) %>%
+  layout(margin = list(b = 160),title = "Bullet Repayment Analysis",
+         xaxis = list(title = ""),
+         yaxis = list(title = ""))
+p
+```
+
+***
+
+**Summary**: Monthly Repayment mode :
+
+* In ***Bullet*** mode, Kenya,Nigeria,Cambodia are the countries which tops.
+
+
+# Boxplots of loan amount in sectors
+```{r,message=FALSE,warning=FALSE}
+loans %>% filter(currency == "USD") %>% filter(loan_amount < quantile(loan_amount, 0.99)) %>% select(sector, currency, loan_amount) -> loan_filtered
+
+ggplot(loan_filtered, aes(x=sector, y=loan_amount, col=sector)) + 
+  geom_boxplot() +
+  theme_bw() + coord_flip() + labs(x="Sector", y="Amount of  loans")
+```
+
+# Sector wise classification of loans based on top grossers
+
+```{r,message=FALSE,warning=FALSE}
+top10 <- droplevels(head(as.factor(loans$country),10))
+top10_loans <- loans[loans$country %in% top10,]
+top10_loans$country <- as.factor(top10_loans$country)
+top10_loans$sector <- as.factor(top10_loans$sector)
+
+ggplot(top10_loans, aes(country)) +
+  geom_bar(aes(fill=sector), width = 0.8, col='black') + theme(axis.text.x = element_text(angle=65, vjust=0.6))
+
+```
+# Wider Picture
+ 
+ I thought to have a wider picture of what is happening, we may need to get to know the world better. Lets see
+
+# Continents
+
+```{r,message=FALSE,warning=FALSE}
+hchart(location$world_region, colorByPoint = TRUE, name = "Countries")
+
+```
+ In demographics, the *world population* is the total number of humans currently living, and was estimated to have reached 7.6 billion as of December 2017.
+ > Six of the Earth's seven continents are permanently inhabited on a large scale. Asia is the most populous continent, with its 4.3 billion inhabitants accounting for 60% of the world population. 
+ > The world's two most populated countries, China and India, together constitute about 37% of the world's population. 
+ > Africa is the second most populated continent, with around 1 billion people, or 15% of the world's population. 
+ > Europe's 733 million people make up 12% of the world's population as of 2012, while the Latin American and Caribbean regions are home to around 600 million (9%). 
+ > Northern America, primarily consisting of the United States and Canada, has a population of around 352 million (5%), and Oceania, the least-populated region, has about 35 million inhabitants (0.5%).
+
+# Tree map for population
+
+```{r,message=FALSE,warning=FALSE}
+library(treemap)
+
+library(viridisLite)
+
+data(GNI2014)
+
+tm <- treemap(GNI2014, index = c("continent", "iso3"),
+              vSize = "population", vColor = "GNI",
+              type = "value", palette = viridis(6))
+
+```
+
+
+
+# Cartographic Representation of the Top Grossers of Loans
+
+Since 2005, Kiva has crowd-funded more than a million loans, totaling over $1 billion,with a repayment rate of between 98 and 99 percent. As of November 2013, Kiva was raising about $1 million every three days. Over a million lenders worldwide use the Kiva platform.
+Kiva allows people to lend money via the Internet to low-income entrepreneurs and students in over 80 countries.
+
+```{r,message=FALSE,warning=FALSE}
+leaflet(loan_themes_region) %>% addProviderTiles("Esri.NatGeoWorldMap") %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/10) ,
+             color = ~c("red"))  %>%
+  # controls
+  setView(lng=0, lat=0,zoom = 2) 
+```
+
+
+
+# Treemap based on amount and number of loan borrowed
+
+```{r,message=FALSE,warning=FALSE}
+tm <- treemap(loan_themes_region, index = c("country", "ISO"),
+              vSize = "amount", vColor = "number",
+              type = "value", palette = viridis(6))
+```
+
+
+
+
+# Amount distribution
+
+```{r,message=FALSE,warning=FALSE}
+leaflet(loan_themes_region) %>% addTiles() %>%
+  addCircles(lng = ~lon, lat = ~lat,radius = ~(amount/10) ,
+             color = ~c("blue")) 
+```
+
+# Treemap of World Regions using MPI 
+
+The Global Multidimensional Poverty Index (MPI) was developed in 2010 by the Oxford Poverty & Human Development Initiative (OPHI) and the United Nations Development Programme and uses different factors to determine poverty beyond income-based lists.
+```{r,message=FALSE,warning=FALSE}
+tm <- treemap(location, index = c("world_region", "ISO"),
+              vSize = "MPI", vColor = "MPI",
+              type = "value", palette = viridis(6))
+```
+
+***Stay tuned..more to come ***

@@ -1,0 +1,394 @@
+---
+title: "TalkingData Exploratory Analysis and Class Imbalance"
+output:
+  html_document:
+    fig_height: 4
+    fig_width: 7
+    theme: cosmo
+    highlight: tango
+    number_sections: true
+    fig_caption: true
+    toc: true
+    code_folding: hide
+---
+
+# Introduction
+
+Here is an Exploratory Data Analysis for the TalkingData AdTracking Fraud Detection Challenge competition 
+within the R environment of the 
+[data.table](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-intro.html), 
+[ggplot2](http://ggplot2.tidyverse.org/) and [caret](http://topepo.github.io/caret/index.html). We are provided with a really generous dataset with 240 million rows 
+and here I will use only a part. Our task is to build an algorithm that predicts whether a user will download an app after clicking an ad.
+The competition is a binary classification problem with [ROC-AUC](https://en.wikipedia.org/wiki/Receiver_operating_characteristic) evaluation metric.
+
+Let's prepare and have a look at the dataset.
+
+# Preparations {.tabset .tabset-fade .tabset-pills}
+
+## Load libraries
+We load libraries for data wrangling and visualisation together.
+```{r, message=FALSE, warning=FALSE, results='hide'}
+library(data.table)
+library(ggplot2)
+library(DT)
+library(magrittr)
+library(corrplot)
+library(Rmisc)
+library(caret)
+```
+
+## Load data
+We use **fread** function from the **data.table** package to speed up loading. 
+The files are large and **data.table** handles big files efficiently.
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+train <- fread("../input/train.csv")
+test <- fread("../input/test.csv", nrows=1e5)
+subm <- fread("../input/sample_submission.csv", nrows=1e5)
+
+set.seed(0)
+train <- train[sample(.N, 3e6), ]
+```
+
+```{r include=FALSE}
+options(tibble.width = Inf)
+```
+
+# Glimpse at the dataset {.tabset}
+
+## Train
+```{r, result='asis', echo=FALSE}
+datatable(head(train, 100),class="table-condensed", options = list(
+  columnDefs = list(list(className = 'dt-center', targets = 5)),
+  pageLength = 5,
+  lengthMenu = c(5, 10, 15, 20)
+))
+```
+
+## Test
+```{r, result='asis', echo=FALSE}
+datatable(head(test, 100),class="table-condensed", options = list(
+  columnDefs = list(list(className = 'dt-center', targets = 5)),
+  pageLength = 5,
+  lengthMenu = c(5, 10, 15, 20)
+))
+```
+
+## Sample Submission
+```{r, result='asis', echo=FALSE}
+datatable(head(subm, 100),class="table-condensed", options = list(
+  pageLength = 5,
+  lengthMenu = c(5, 10, 15, 20)
+))
+```
+
+## Missing values
+```{r, result='asis', echo=TRUE}
+cat("Number of missing values in the train set:",  sum(is.na(train)))
+cat("Number of missing values in the test set:",  sum(is.na(test)))
+```
+
+# Dataset columns
+
+```{r, result='asis'}
+str(train)
+```
+
+There is a total of 7 features: 
+
+* **ip**: ip address of click
+* **app**: app id for marketing
+* **device**: device type id of user mobile phone
+* **os**: os version id of user mobile phone
+* **channel**: channel id of mobile ad publisher
+* **click_time**: timestamp of click (UTC)
+* **attributed_time**: if user download the app for after clicking an ad, this is the time of the app download
+
+*Nota bene*:
+
+* **is_attributed** is a binary target to predict 
+* **ip**, **app**, **device**, **os**, **channel** are encoded
+* **attributed_time** is not available in the test set
+
+Let's have a look at features counts:
+
+```{r, result='asis',  warning=FALSE, echo=TRUE}
+fea <- c("os", "channel", "device", "app", "attributed_time", "click_time", "ip")
+train[, lapply(.SD, uniqueN), .SDcols = fea] %>%
+  melt(variable.name = "features", value.name = "unique_values") %>%
+  ggplot(aes(reorder(features, -unique_values), unique_values)) +
+  geom_bar(stat = "identity", fill = "steelblue") + 
+  scale_y_log10(breaks = c(50,100,250, 500, 10000, 50000)) +
+  geom_text(aes(label = unique_values), vjust = 1.6, color = "white", size=3.5) +
+  theme_minimal() +
+  labs(x = "features", y = "Number of unique values")
+```
+
+Actually we can treat **ip**, **os**, **channel**, **device**, **app** as categorical features. 
+
+# The most frequent values of categorical features {.tabset .tabset-fade .tabset-pills}
+
+```{r, result='asis',  warning=FALSE, echo=TRUE}
+p1 <- train[, .N, by = os][order(-N)][1:10] %>% 
+      ggplot(aes(reorder(os, -N), N)) +
+      geom_bar(stat="identity", fill="steelblue") + 
+      theme_minimal() +
+      geom_text(aes(label = round(N / sum(N), 2)), vjust = 1.6, color = "white", size=2.5) +
+      labs(x = "os")
+
+p2 <- train[, .N, by = channel][order(-N)][1:10] %>% 
+      ggplot(aes(reorder(channel, -N), N)) +
+      geom_bar(stat="identity", fill="steelblue") + 
+      theme_minimal() +
+      geom_text(aes(label = round(N / sum(N), 2)), vjust = 1.6, color = "white", size=2.5) +
+      labs(x = "channel")
+ 
+p3 <- train[, .N, by = device][order(-N)][1:10] %>% 
+      ggplot(aes(reorder(device, -N), N)) +
+      geom_bar(stat="identity", fill="steelblue") + 
+      theme_minimal() +
+      geom_text(aes(label = round(N / sum(N), 2)), vjust = 1.6, color = "white", size=2.5) +
+      labs(x = "device")
+      
+p4 <- train[, .N, by = app][order(-N)][1:10] %>% 
+      ggplot(aes(reorder(app, -N), N)) +
+      geom_bar(stat="identity", fill="steelblue") + 
+      theme_minimal() +
+      geom_text(aes(label = round(N / sum(N), 2)), vjust = 1.6, color = "white", size=2.5) +
+      labs(x = "app")      
+ 
+multiplot(p1, p2, p3, p4, layout = matrix(1:4, 2, 2))     
+```
+
+We can assume that the first two most popular mobile operating systems are some 
+versions of Android followed by iOS. The same considerations can be applied to **device** (e.g. "some Android device").
+
+Let's peek at the **ip**:
+
+```{r, result='asis',  warning=FALSE, echo=TRUE}
+summary(train$ip)
+```
+
+```{r, result='asis',  warning=FALSE, echo=TRUE}
+p5 <- train[, .N, by = ip][order(-N)][1:10] %>% 
+      ggplot(aes(reorder(ip, -N), N)) +
+      geom_bar(stat="identity", fill="steelblue") + 
+      theme_minimal() +
+      geom_text(aes(label = round(N / sum(N), 2)), vjust = 1.6, color = "white", size=2.5) +
+      labs(x = "ip")+
+      theme(axis.text.x = element_text(angle = 90, hjust = 1))
+p6 <- train[, "ip"][order(ip)] %>% unique() %>% 
+      ggplot() +
+      geom_point(aes(x=seq_along(ip), y=ip), size = 0.25, shape=18)+
+      theme_minimal() +
+      labs(x = "") +
+      scale_y_continuous(name="ip", labels = scales::comma) + 
+      scale_x_continuous(labels = scales::comma) 
+multiplot(p6, p5, layout = matrix(1:2, 1, 2))           
+```      
+
+It looks like **ip** (and other features) just was encoded with sequential integers with a strange elbow (may be due to sampling). 
+It's interesting that about 50% of all events are generated by 3 addresses. Those must be some 
+large networks.
+
+# Pairwise correlations
+
+```{r, result='asis',  warning=FALSE, echo=TRUE}
+train[, -c("click_time", "attributed_time"), with=F] %>%
+  cor(method = "spearman") %>%
+  corrplot(type="lower", method = "number", tl.col = "black", diag=FALSE)
+```
+
+Only **app** somehow correlates with **channel**. 
+Well, not much, but what did we want from categorical features and Spearman's correlation?
+
+# Target and features importance
+
+```{r plot_target, result='asis',  warning=FALSE, echo=TRUE}
+p7 <- train[, .N, by = is_attributed] %>% 
+      ggplot(aes(is_attributed, N)) +
+      geom_bar(stat="identity", fill="steelblue") + 
+      theme_minimal() +
+      geom_text(aes(label = N), vjust = -0.5, color = "black", size=2.5)
+      
+p8 <- train[sample(.N, 10000), .(app, is_attributed)] %>% 
+    ggplot(aes(app, is_attributed)) +
+    stat_smooth(method="loess", formula=y~x, alpha=0.25, size=1.5) +
+    geom_point(position=position_jitter(height=0.025, width=0), size=1, alpha=0.2) +
+    xlab("app") + ylab("P(is_attributed)")+
+    theme_minimal()  
+    
+p9 <- train[sample(.N, 10000), .(device, is_attributed)] %>% 
+    ggplot(aes(device, is_attributed)) +
+    stat_smooth(method="glm", formula=y~x, alpha=0.25, size=1.5) +
+    geom_point(position=position_jitter(height=0.025, width=0), size=1, alpha=0.2) +
+    xlab("device") + ylab("P(is_attributed)")+
+    theme_minimal()   
+    
+p10 <- train[sample(.N, 10000), .(os, is_attributed)] %>% 
+    ggplot(aes(os, is_attributed)) +
+    stat_smooth(method="loess", formula=y~x, alpha=0.25, size=1.5) +
+    geom_point(position=position_jitter(height=0.025, width=0), size=1, alpha=0.2) +
+    xlab("os") + ylab("P(is_attributed)")+
+    theme_minimal()   
+    
+multiplot(p7, p8, layout = matrix(1:2, ncol=2))
+multiplot(p9, p10, layout = matrix(1:2, ncol=2)) 
+```
+
+Here we can observe a class imbalance problem. To address that we can use, for example,
+[subsampling techniques](http://topepo.github.io/caret/subsampling-for-class-imbalances.html) like SMOTE or ROSE 
+or some robust model. But now I just add some time features, create a simple xgb model and plot feature importance.
+
+```{r orig, result='asis',  warning=FALSE, echo=TRUE}
+X <- train[, `:=`(hour = hour(click_time),
+                  wday = wday(click_time),
+                  minute = minute(click_time)
+)][, -c("click_time", "attributed_time", "is_attributed"), with = F]
+str(X)
+
+y <- factor(ifelse(train$is_attributed == 0, "zero", "one"))
+X$y <- y
+tri <- createDataPartition(X$y, p = 0.2, list = F)
+X_val <- X[-tri, ]
+X <- X[tri, ]
+
+ctrl <- trainControl(method = "cv", 
+                     number = 4,
+                     classProbs = T,
+                     summaryFunction = twoClassSummary)
+
+grid <- expand.grid(nrounds = 100, 
+                    max_depth = 4, 
+                    eta = 0.2, 
+                    gamma = 0,
+                    min_child_weight = 1,
+                    colsample_bytree = 0.7, 
+                    subsample = 0.7)
+
+set.seed(0)
+m_xgb <- train(y ~ ., data = X,
+               method = "xgbTree",
+               nthread = 4,
+               metric = "ROC",
+               tuneGrid = grid,
+               trControl = ctrl)
+getTrainPerf(m_xgb)
+```
+
+```{r, result='asis',  warning=FALSE, echo=FALSE}
+ggplot(varImp(m_xgb)) + theme_minimal()
+```
+
+It appears that **app** is the most important feature.
+
+# Class imbalance
+Let's try to use sampling techniques to deal with unbalanced classes.
+
+## Original target
+
+```{r, result='asis',  warning=FALSE, echo=TRUE}
+table(y)
+```
+
+## XGB with downsampling
+
+```{r down, result='asis',  warning=FALSE, echo=TRUE}
+set.seed(0)
+ctrl$sampling = "down"
+m_xgb_down <- train(y ~ ., data = X,
+                    method = "xgbTree",
+                    nthread = 4,
+                    metric = "ROC",
+                    tuneGrid = grid,
+                    trControl = ctrl)
+```                     
+                     
+## XGB with upsampling
+
+```{r up, result='asis',  warning=FALSE, echo=TRUE}
+set.seed(0)
+ctrl$sampling = "up"
+m_xgb_up <- train(y ~ ., data = X,
+                  method = "xgbTree",
+                  nthread = 4,
+                  metric = "ROC",
+                  tuneGrid = grid,
+                  trControl = ctrl)                     
+```   
+
+## XGB with ROSE
+
+```{r rose,  warning=FALSE, echo=TRUE, results='hide'}
+set.seed(0)
+ctrl$sampling = "rose"
+m_xgb_rose <- train(y ~ ., data = X,
+                    method = "xgbTree",
+                    nthread = 4,
+                    metric = "ROC",
+                    tuneGrid = grid,
+                    trControl = ctrl)                     
+                  
+```    
+
+## XGB with SMOTE
+
+```{r smote, warning=FALSE, echo=TRUE, results='hide'}
+set.seed(0)
+ctrl$sampling = "smote"
+m_xgb_smote <- train(y ~ ., data = X,
+                     method = "xgbTree",
+                     nthread = 4,
+                     metric = "ROC",
+                     tuneGrid = grid,
+                     trControl = ctrl)                     
+``` 
+
+## Models resampling results
+
+```{r resampl, result='asis',  warning=FALSE, echo=TRUE}
+models <- list(original = m_xgb,
+               down = m_xgb_down,
+               up = m_xgb_up,
+               SMOTE = m_xgb_smote,
+               ROSE = m_xgb_rose)
+set.seed(0)               
+resampling <- resamples(models)
+summary(resampling, metric = "ROC")
+```
+
+Sampling techniques do not increase mean AUC CV score.
+
+## The validation set performance
+
+```{r tst, result='asis',  warning=FALSE, echo=TRUE}
+(tst_perf <- models %>% 
+    lapply(function(m) {
+      act <- ifelse(X_val$y=="one", 1, 0)
+      pred <- predict(m, X_val, type = "prob")[, "one"]
+      Metrics::auc(act, pred)}) %>% 
+    lapply(as.vector) %>% 
+    do.call("rbind", .) %>% 
+    set_colnames(c("ROC")) %>% 
+    as.data.frame())
+```
+
+```{r plot_auc, result='asis',  warning=FALSE, echo=FALSE}
+cbind(summary(resampling, metric = "ROC")$statistics$ROC[, 4], 
+      tst_perf$ROC) %>% 
+  set_colnames(c("CV", "Validation_set")) %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column(var = "Sampling") %>% 
+  melt(id.vars="Sampling", variable.name = "Control", value.name = "AUC") %>% 
+  ggplot(aes(Sampling, AUC)) +   
+  geom_bar(aes(fill = Control), position = position_dodge(), stat="identity")+
+  geom_text(aes(label=round(AUC, 2), group=Control), 
+            vjust=1.6, position = position_dodge(width=.9), color="white", size=3)+
+  theme_minimal()
+ ```
+ 
+As we can see sampling techniques do not help to improve AUC score for 
+the validation set either. ROSE makes things significantly worse.
+
+
+

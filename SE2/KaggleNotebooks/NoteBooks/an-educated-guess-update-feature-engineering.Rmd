@@ -1,0 +1,6212 @@
+---
+title: 'An Educated Guess - Update: Feature Engineering'
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    number_sections: true
+    fig_caption: true
+    toc: true
+    fig_width: 7
+    fig_height: 4.5
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo=TRUE, error=FALSE)
+```
+
+<center><img src="https://dreamhost.donorschoose.org/wp-content/uploads/2017/02/Genein.jpg"></center>
+
+
+# Introduction
+
+Welcome to a comprehensive Exploratory Data Analysis for the [DonorsChoose.org Application Screening](https://www.kaggle.com/c/donorschoose-application-screening) competition with [tidy R](http://tidyverse.org/) and [ggplot2](http://ggplot2.tidyverse.org/).
+
+The aim of this challenge is to predict whether a project proposal submitted to DonorsChoose.org will be approved for funding. [DonorsChoose.org](https://www.donorschoose.org/) is a US organisation that provides classroom "materials and experience" for public school teachers in the United States to work with their students (see the challenge [description](https://www.kaggle.com/c/donorschoose-application-screening)). With a predicted number of 500k project proposals next year, our challenge is to implement a pre-screening algorithm to reduce the number of proposals that qualify for a more detailed, manual screening.
+
+The [data](https://www.kaggle.com/c/donorschoose-application-screening/data) is supplied in four different files, found as usual in the `../input/` directory:
+
+- `train.csv` is the training data, containing a unique *id* for each project together with detailed information on the teacher and project. The target variable is *project\_is\_approved*: a binary flag describing rejection ("0") vs acceptance ("1"). This makes our challenge a *classification problem*. Note, that this data also contains essays on specific aspects of the project as well as a project summary.
+
+- `test.csv` contains the features for the test data set, minus the target variable which we need to predict.
+
+- `sample_submission.csv` shows the format of the required submission file: containing only the *id* and *project\_is\_approved* features.
+
+- `resources.csv` contains the specific classroom resources requested by each project *id*.
+
+*In my opinion, a good education is an immensely important building block for having successful and well-rounded individuals and a prospering society. Providing educational support to promising classroom projects is a great initiative that certainly deserves the contribution of the Kaggle community. Let's see how we can help :-)*
+
+
+# Preparations {.tabset .tabset-fade .tabset-pills}
+
+## Load libraries
+
+We load a range of libraries for general data wrangling and general visualisation together with more specialised tools.
+
+```{r, message = FALSE}
+# general visualisation
+library('ggplot2') # visualisation
+library('scales') # visualisation
+library('grid') # visualisation
+library('gridExtra') # visualisation
+library('RColorBrewer') # visualisation
+library('corrplot') # visualisation
+
+# general data manipulation
+library('dplyr') # data manipulation
+library('readr') # input/output
+library('data.table') # data manipulation
+library('tibble') # data wrangling
+library('tidyr') # data wrangling
+library('stringr') # string manipulation
+library('forcats') # factor manipulation
+
+# specific visualisation
+library('alluvial') # visualisation
+library('ggrepel') # visualisation
+library('ggforce') # visualisation
+library('ggridges') # visualisation
+library('gganimate') # animations
+
+# specific data manipulation
+library('lazyeval') # data wrangling
+library('broom') # data wrangling
+library('purrr') # string manipulation
+library('reshape2') # data wrangling
+
+# Maps / geospatial
+library('geosphere') # geospatial locations
+library('leaflet') # maps
+library('leaflet.extras') # maps
+library('maps') # maps
+
+# Date plus forecast
+library('lubridate') # date and time
+library('timeDate') # date and time
+library('tseries') # time series analysis
+library('forecast') # time series analysis
+library('prophet') # time series analysis
+library('timetk') # time series analysis
+
+# Text / NLP
+library('tidytext') # text analysis
+library('tm') # text analysis
+library('SnowballC') # text analysis
+library('topicmodels') # text analysis
+library('wordcloud') # test visualisation
+library('igraph') # visualisation
+library('ggraph') # visualisation
+
+library('treemapify')
+```
+
+## Helper functions
+
+We use the *multiplot* function, courtesy of [R Cookbooks](http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/) to create multi-panel plots. We also make use of a brief helper function to compute binomial confidence intervals.
+
+```{r}
+# Define multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r}
+# function to extract binomial confidence levels
+get_binCI <- function(x,n) as.list(setNames(binom.test(x,n)$conf.int, c("lwr", "upr")))
+```
+
+## Load data
+
+When reading in the `train` and `test` data sets, beware that some of the character features, such as the project essays, contain text with (escaped) quotes (i.e. `\""`) which might confuse some read-in methods (on their default settings).
+
+```{r echo=FALSE}
+on_kaggle <- 1
+
+if (on_kaggle == 0){
+  path <- ""
+} else {
+  path <- "../input/"
+}
+```
+
+```{r warning=FALSE, results=FALSE, message=FALSE}
+train <- read_csv(str_c(path,'train.csv'))
+test <- read_csv(str_c(path,'test.csv'))
+sample_submit <- as.tibble(fread(str_c(path,'sample_submission.csv')))
+res <- as.tibble(fread(str_c(path,'resources.csv')))
+```
+
+
+# Overview: File structure and content {.tabset .tabset-fade .tabset-pills}
+
+As a first step, we will get an overview of the individual data sets using the *summary* and *glimpse* tools.
+
+
+## Training data
+
+```{r}
+summary(train)
+```
+
+```{r}
+glimpse(train)
+```
+
+We find:
+
+- There are about 180k entries in our `train` data set.
+
+- The **teacher** information contains an anonimised *teacher\_id* together with a *teacher\_prefix* which gives us the gender of the particular teacher (and should become a categorical feature). We also get the US state where the school is located via the *school\_state* feature. Any more detailed geographical information could probably risk the anonymity of the teacher or school.
+
+- In terms of the **project**, we get the *date* and *time* of submission together with the *grade* and *subject* categories it was submitted to. Those will likely be useful to treat as categorical variables. In contrast, the *project\_title* appears to be a free-form text feature with probably only a word limit contraint.
+
+- The *project\_essay* features 1 to 4 were required to address the following specific topics ([see the data description](https://www.kaggle.com/c/donorschoose-application-screening/data)): 1: "Open with the challenge facing your students"; 2: "Tell us more about your students"; 3: "Inspire your potential donors with an overview of the resources you're requesting"; 4: "Close by sharing why your project is so important". (The data description notes that these specific topics were not required before Feb 2010; but since our data only goes back to Apr 2016 this should not be an issue.) Note, that all of the first entries for *project\_essays* 3 and 4 are NAs. **Update: The essay requirements changed during the data period. Read the [update](https://www.kaggle.com/c/donorschoose-application-screening/discussion/51352#292941) by the organisers and check out the implications below.**
+
+- The *project\_resource\_summary* provides probably the most succinct and informative description of the resources needed.
+
+- We also get information on *how many projects* the particular teacher had submitted *prior to this one*. We don't get the important information on how many of those were approved, but the features we have should still be useful.
+
+- *project\_is\_approved* is our target variable.
+
+
+## Test data
+
+```{r}
+summary(test)
+```
+
+```{r}
+glimpse(test)
+```
+
+We find:
+
+- The `test` data has of course the same features and format as the `train` data; minus the target features, naturally. It also appears to cover a similar time range. There are about 78k entries corresponding to 30% of the entire `train + test` data.
+
+
+## Resources data
+
+```{r}
+summary(res)
+```
+
+```{r}
+glimpse(res)
+```
+
+We find:
+
+- The *resources* are linked to the *project* via the *id* feature. We get a *description* of the specific materials needed along with their *quantity* and *price*. I would assume, that the *price* feature refers to the price for all resources, rather than the price per 1 resource. However, this is not explicitely stated in the data description and should therefore be taken as an assumption.
+
+- Note that both the *price* and *quantity* are character variables here. For an optimal analysis I suggest to format them as numerical values. 
+
+- The [data description](https://www.kaggle.com/c/donorschoose-application-screening/data) notes that one project can request multiple resources.
+
+
+## Sample Submission
+
+Based on the `sample_submission.csv` file, this is the format required for the submission:
+
+```{r}
+head(sample_submit)
+```
+
+## Missing values
+
+There are a number of missing values in the `train` and `test` files, but none in the `resources` file (in that order):
+
+```{r}
+sum(is.na(train))
+sum(is.na(test))
+sum(is.na(res))
+```
+
+
+## Reformating features
+
+We change the format of the categorical features and also the date-time features (to the `lubridate` format which I prefer):
+
+```{r}
+train <- train %>%
+  mutate(teacher_id = as.factor(teacher_id),
+         prefix = as.factor(teacher_prefix),
+         state = as.factor(school_state),
+         date = ymd_hms(project_submitted_datetime),
+         day = ymd(str_sub(as.character(date),1,10)),
+         cat = as.factor(project_grade_category),
+         cat = fct_relevel(cat, "Grades PreK-2", after = 0),
+         sub = as.factor(project_subject_categories),
+         sub_sub = as.factor(project_subject_subcategories),
+         target = as.logical(project_is_approved))
+
+test <- test %>%
+  mutate(teacher_id = as.factor(teacher_id),
+         prefix = as.factor(teacher_prefix),
+         state = as.factor(school_state),
+         date = ymd_hms(project_submitted_datetime),
+         day = ymd(str_sub(as.character(date),1,10)),
+         cat = as.factor(project_grade_category),
+         cat = fct_relevel(cat, "Grades PreK-2", after = 0),
+         sub = as.factor(project_subject_categories),
+         sub_sub = as.factor(project_subject_subcategories))
+
+res <- res %>%
+  mutate(description = as.factor(description),
+         price = as.numeric(price),
+         quantity = as.numeric(quantity))
+```
+
+
+# Individual feature visualisations
+
+
+
+Now we are ready to start visualising our data! Let's start off with some overview plots for individual features, to get a feeling of the data set.
+
+
+
+
+
+## Time and Space
+
+
+
+First, we will plot the number of submitted project proposals accross the US states. I decided against a log-scale to emphasise the stark differences:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 1", out.width="100%"}
+
+us <- map_data("state")
+
+
+
+state2abb <- tibble(
+
+  region = state.name,
+
+  state = state.abb
+
+)
+
+
+
+state_center <- tibble(
+
+  name = state.abb,
+
+  region = state.name,
+
+  lat = state.center$y,
+
+  long = state.center$x
+
+) %>%
+
+  filter(name != "HI" & name != "AK")
+
+
+
+proj_state <- train %>%
+
+  count(state) %>%
+
+  mutate(state = as.character(state),
+
+         logn = log10(n)) %>%
+
+  left_join(state2abb, by = "state") %>%
+
+  mutate(region = str_to_lower(region))
+
+
+
+us %>%
+
+  left_join(proj_state, by = "region") %>%
+
+  ggplot() + 
+
+  geom_polygon(aes(x = long, y = lat, fill = n, group = group), color = "white") +
+
+  geom_text(data=state_center, aes(long, lat, label = name), size=4, color = "grey30") +
+
+  coord_fixed(1.3) +
+
+  scale_fill_continuous(low='lightblue', high='darkblue', guide='colorbar') +
+
+  labs(fill = 'Total Projects') +
+
+  theme_void() +
+
+  ggtitle("Number of Submitted Project Proposals per US state")
+
+```
+
+
+
+We find:
+
+
+
+- California (on the west coast) clearly dominates the numbers. On the east coast, New York state has larger numbers. Texas and Florida are the largest contributors in the south / south-east.
+
+
+
+Let's look at the numbers in a bar plot on a logarithmic axis:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 2", fig.height=3.5, out.width="100%"}
+
+train %>%
+
+  count(state) %>%
+
+  ggplot(aes(reorder(state, -n, FUN = min), n, fill = state)) +
+
+  geom_col() +
+
+  scale_y_log10(breaks = c(10, 100, 1000)) +
+
+  theme(legend.position = "none",  axis.text.x  = element_text(angle=60, hjust=1, vjust=0.9)) +
+
+  labs(x = "State") +
+
+  ggtitle("Number of Submitted Project Proposals per US state (log axis)")
+
+```
+
+
+
+We find:
+
+
+
+- The dominance of California remains obvious in this plot, with Texas and NY in joint second place.
+
+
+
+- We see a stronger decline to Indiana (IN), after which the numbers decline slower up to Virginia (VA) and a little faster to Arkansas (AR). Then, there's a notable step down to Idaho (ID) and another one between Maine and Delaware.
+
+
+
+- The states on the last four places are Rhode Island (RI), North Dakota (ND), Wyoming (WY), and Vermont (VT); and the logarithmic slope of their project contributions declines more sharply in that order.
+
+
+
+Note, that those are the total number; not adjusted for the population of each state or its number of schools and teachers.
+
+
+
+
+
+Now from space to time; the other fundamental dimension in many interesting challenges. How does the number of proposals evolve with time? We look at the full time series, plus a zoom-in on an interesting time range, on the left side of the layout and then add a breakdown by month and week day on the right side:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 3", out.width="100%"}
+
+p1 <- train %>%
+
+  count(day) %>%
+
+  ggplot(aes(day, n)) +
+
+  geom_line(col = "darkgreen") +
+
+  labs(x = "Date", y = "Submitted Proposals") +
+
+  facet_zoom(x = (day > ymd("20160722") & day < ymd("20160910")), zoom.size = 0.5)
+
+
+
+p2 <- train %>%
+
+  mutate(month = month(day, label = TRUE)) %>%
+
+  ggplot(aes(month, fill = month)) +
+
+  geom_bar() +
+
+  labs(x = "Month") +
+
+  theme(legend.position = "none",  axis.text.x = element_text(angle=45, hjust=1, vjust=0.9))
+
+
+
+p3 <- train %>%
+
+  mutate(wday = wday(day, label = TRUE, week_start = 1)) %>%
+
+  ggplot(aes(wday, fill = wday)) +
+
+  geom_bar() +
+
+  labs(x = "Day of the Week") +
+
+  theme(legend.position = "none")
+
+
+
+layout <- matrix(c(1,1,1,2,2,1,1,1,3,3),2,5,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+```
+
+
+
+We find:
+
+
+
+- Our `train` data covers pretty much a full year; from Apr 27 2016 to Apr 30 2017.
+
+
+
+- There is a considerable long-term trend of numbers increasing from Jul to Sep and then falling back to a baseline toward Nov. This time range coincides with the start of the school year, for which we would expect larger numbers of proposals.
+
+
+
+- This impression is confirmed by the monthly barplot in the upper right panel, where see the numbers peaking in Aug and Sep. Toward the typical holiday period of Jun the numbers decrease. Here the 1-yr coverage becomes useful; since we don't need to correct for some months having more data than others.
+
+
+
+- Superimposed on this trend are two notable features. First, we find two sharp peaks. We zoom in on those in the lower left panel (via *facet\_zoom* from the fantastic [ggforce package](https://cran.r-project.org/web/packages/ggforce)) and find that they correspond to the 1st of Aug and Sep. The challenge overview (or the DonorsChoose website) don't mention any proposal deadlines, but perhaps certain schools have internal deadlines.
+
+
+
+- The other notable feature is a pretty strong cyclic component on a time scale of weeks. The corresponding week-day barplot shows that numbers of submissions peak around Wed and fall toward the weekend.
+
+
+
+
+
+## Teachers
+
+
+
+Having good teachers is an incredible powerful advantage for success and enjoyment in learning. Just like all of us here on Kaggle benefit from the shared wisdom and skillset of a knowledgeable community, so do students in the classroom benefit from inspiring and motivating teachers and mentors.
+
+
+
+Let's find out what we know about the teachers in our data:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 4", out.width="100%"}
+
+p1 <- train %>%
+
+  count(teacher_id) %>%
+
+  ggplot(aes(n)) +
+
+  geom_bar(fill = "blue") +
+
+  scale_y_log10() +
+
+  labs(x = "Number of Proposals per Teacher ID") +
+
+  ggtitle("Teacher Characteristics")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(teacher_number_of_previously_posted_projects)) +
+
+  geom_histogram(bins = 100, fill = "darkgreen") +
+
+  labs(x = "Number of previous Proposals per Teacher ID") +
+
+  scale_y_log10()
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(prefix, fill = prefix)) +
+
+  geom_bar() +
+
+  scale_y_log10() +
+
+  labs(x = "Teacher Prefix") +
+
+  theme(legend.position = "none")
+
+
+
+foo <- train %>%
+
+  mutate(gender = case_when(
+
+    prefix == "Ms." | prefix == "Mrs."  ~ "Female",
+
+    prefix == "Mr."  ~ "Male"
+
+  )) %>%
+
+  filter(!is.na(gender)) %>%
+
+  group_by(gender) %>%
+
+  count()
+
+
+
+p4 <- foo %>%
+
+  mutate(percentage = str_c(as.character(round(n/sum(foo$n)*100,1)), "%")) %>%
+
+  ggplot(aes(gender, n, fill = gender)) +
+
+  geom_col() +
+
+  geom_label(aes(label = percentage), position = position_dodge(width = 1)) +
+
+  labs(x = "Teacher Gender") +
+
+  theme(legend.position = "none")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=FALSE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+```
+
+
+
+We find:
+
+
+
+- A considerably number of teachers (in fact, about 30%) have *submitted* more than 1 proposal during the time of the `training` data. More than a 1000 teachers have submitted more than 10 proposals, and 5 of those have submitted more than 50.
+
+
+
+- Consequently, the *number of previous proposals* that each teacher has submitted is similarly impressive. There are still about 15% of first-time participants, but considerable numbers of teachers have submitted more than 100 proposals in the past. Does experience equal success? We will see.
+
+
+
+- Only 4 teachers in the `training` set have given no *prefix*. Among the rest, "Dr." is a rare prefix and "Teacher" is a clear minority. The titles of "Mrs." and "Ms." are the most frequent; followed by "Mr.". This gives us the possibility to derive the *gender* balance within our sample which shows that women dominate the data set with a 90% rate. Ideally, the success of a project proposal should of course be independent from the *gender* of the teacher; which is a hypothesis that we can test as this analysis progresses.
+
+
+
+
+
+## Project Categories
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 5", out.width="100%"}
+
+p1 <- train %>%
+
+  mutate(grades = as.factor(str_sub(cat, 8, -1))) %>%
+
+  mutate(grades = fct_relevel(grades, "PreK-2", after = 0)) %>%
+
+  ggplot(aes(grades, fill = grades)) +
+
+  geom_bar() +
+
+  labs(x = "Grade Categories") +
+
+  theme(legend.position = "none")
+
+
+
+p2 <- train %>%
+
+  count(sub) %>%
+
+  top_n(10, n) %>%
+
+  ggplot(aes(reorder(sub, n, FUN = min), n, fill = sub)) +
+
+  geom_col() +
+
+  labs(x = "Subject Categories") +
+
+  coord_flip() +
+
+  theme(legend.position = "none")
+
+
+
+p3 <- train %>%
+
+  count(sub_sub) %>%
+
+  top_n(10, n) %>%
+
+  ggplot(aes(reorder(sub_sub, n, FUN = min), n, fill = sub_sub)) +
+
+  geom_col() +
+
+  labs(x = "Subject Sub-Categories") +
+
+  coord_flip() +
+
+  theme(legend.position = "none")
+
+
+
+layout <- matrix(c(2,2,2,2,2,3,3,3,1,1),2,5,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+```
+
+
+
+We find:
+
+
+
+- In terms of *subject categories* we only show the top 10 categories to keep the plot readable. "Literacy and Language" is by far the most popular subject; followed by "Mathematics and Science" as well as the combination of both. (Incidentally, this combination pretty much also the theme of our competition and my kernel.) "Special Needs" and "Applied Learning" are important, too. "Health & Sports" and "Music & Arts" are unique entries in our top 10.
+
+
+
+- The *sub categories* for each subject don't look that different from their parent categories. 
+
+
+
+- *Grade Categories:* There are more project proposals for younger students: starting with the highest numbers for pre-school / kindergarden and dropping all the way to the final grades.
+
+
+
+
+
+Let's explore the relations between the subject categories and sub-categories a little bit further by using the popular *treemap* style. In `ggplot`, we have the `treemapify` [package](https://cran.r-project.org/web/packages/treemapify/index.html) at our fingertips.
+
+
+
+This plot works the following way: The size of the box corresponds to the frequency of the category / sub-category (compare the barplots above). *Sub-categories* are represented by multi-coloured boxes with white labels. These small boxes are arranged within a larger box with grey borders. The larger boxes correspond to the parent *categories*. The sizes of the boxes increase from upper right to the lower left corner on both the *categories* and *sub-categories* level.
+
+
+
+We only include the most frequent combinations to keep the treemap readable:
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 6", out.width="100%"}
+
+train %>%
+
+  group_by(sub, sub_sub) %>%
+
+  count() %>%
+
+  ungroup() %>%
+
+  top_n(25, n) %>%
+
+  ggplot(aes(area = n, fill = sub_sub, label = sub_sub, subgroup = sub)) +
+
+  geom_treemap() +
+
+  geom_treemap_subgroup_border() +
+
+  geom_treemap_subgroup_text(place = "centre", grow = T, alpha = 0.5, colour =
+
+                             "black", fontface = "italic", min.size = 0) +
+
+  geom_treemap_text(colour = "white", place = "topleft", reflow = T) +
+
+  theme(legend.position = "null") +
+
+  ggtitle("Relations beween Subject Categories and Sub-Categories")
+
+```
+
+
+
+
+
+## Text features
+
+
+
+After examining the meta-parameters of the proposals, we will now have a closer look at their actual content. The text features of project *title*, *essays*, and *summary* constitute the natural language processing (NLP) part of this challenge. The mix of meta-parameter and NLP analysis is one of the attractive properties of this competition.
+
+
+
+As in [previous]() [kernels]() of [mine]() for text mining we will use the powerful and versatile [`tidytext` package](http://tidytextmining.com/) together with a few other NLP resources. For each feature, we will use `tidytext`'s `unnest_tokens` tool to extract the individual words and arrange the most frequent ones in an overview wordcloud. We also use the in-built dictionary of so-called *stop words* to remove common words like 'and', 'the', 'an' from this cloud to get a better impression of the meaningful terms. The words in the cloud go from red to black to blue and increase in size according to their importance.
+
+
+
+In addition, we will add a little meta analysis on words counts and some initital sentiment analysis. 
+
+
+
+
+
+### Project Title
+
+
+
+```{r}
+
+t1 <- train %>% unnest_tokens(word, project_title)
+
+t1_nostop <- t1 %>%
+
+  anti_join(stop_words, by = "word")
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 7", out.width="100%"}
+
+layout(matrix(c(1, 2), nrow=2), heights=c(1, 4))
+
+par(mar=rep(0, 4))
+
+plot.new()
+
+text(x=0.5, y=0.5, "Most frequent Project Title words", cex = 1.5)
+
+
+
+t1_nostop %>%
+
+  count(word) %>%
+
+  top_n(40, n) %>%
+
+  with(wordcloud(word, n, color = c("red4", "black", "darkblue")))
+
+```
+
+
+
+We find:
+
+
+
+- "Learning" is clearly the big focus for the title; together with audience descriptions such as "classroom" and "students" and project focus terms like "reading" or "technology".
+
+
+
+- It will be interesting to see how these words evolve through the four different grade categories. Let's keep this in mind for our upcoming analysis of feature interactions.
+
+
+
+
+
+Let's have an overview of the word counts for each title. Ideally, a good title should be succinct and to the point. In the following plots, note the square-root scaling for the y-axis (to make lower frequencies visible) as well as the log-scaling of the x-axis in the left panel:
+
+
+
+```{r}
+
+foo <- t1 %>%
+
+  group_by(id) %>%
+
+  count() %>%
+
+  ungroup()
+
+
+
+bar <- t1_nostop %>%
+
+  group_by(id) %>%
+
+  count() %>%
+
+  ungroup()
+
+```
+
+
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 8", fig.height=3.5, out.width="100%"}
+
+p1 <- foo %>%
+
+  ggplot(aes(n)) +
+
+  geom_histogram(bins = 30, fill = "blue") +
+
+  scale_y_sqrt() +
+
+  scale_x_log10(breaks = c(1, 2, 5, 10, 20, 50)) +
+
+  labs(x = "Words") +
+
+  ggtitle("Number of words per project title")
+
+
+
+p2 <- bar %>%
+
+  ggplot(aes(n)) +
+
+  geom_histogram(binwidth = 1, fill = "darkgreen") +
+
+  scale_y_sqrt() +
+
+  scale_x_continuous(breaks = seq(1,13)) +
+
+  labs(x = "Words") +
+
+  ggtitle("Number of words per project title\n excluding stop words")
+
+
+
+layout <- matrix(c(1,2),1,2,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+```
+
+
+
+
+
+We find:
+
+
+
+- Including stop words, the title length peaks around 4 words; which is a good number. Nevertheless, there are some titles with more than 10 words and even a few above 20.
+
+
+
+- Without stop words, the numbers are considerably lower and peak around 2 or 3 significant words per title.
+
+
+
+- If you're wondering about that 50+ words title then you're not alone. Here it is:
+
+
+
+```{r}
+
+id50 <- foo %>%
+
+  filter(n > 50) %>%
+
+  .$id
+
+
+
+train %>%
+
+  filter(id == id50) %>%
+
+  select(project_title)
+
+```
+
+
+
+Clearly, something went wrong with the encodings there. This tells us that we will need to apply to pre-processing and cleaning to the text features if we want to use them in their entirety. When filtering for stop words the problem goes away naturally.
+
+
+
+
+
+In addition to looking at the words themselves, let's add a brief investigation of their *sentiments*. `Sentiment analysis` compares the frequency of words with, for instance, positive or negative connotations to derive the overall tone of a text. `Tidytext` contains several sentiment dictionaries that we can use for this task. These lexica assign different scores of negativity/positivity to words.
+
+
+
+Here is the result for the titles:
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 9", out.width="100%"}
+
+t1_nostop %>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, sort = TRUE) %>%
+
+  ungroup() %>%
+
+  group_by(sentiment) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  facet_wrap(~sentiment, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  coord_flip() +
+
+  ggtitle("Project Title - Sentiment analysis")
+
+```
+
+
+
+We find:
+
+
+
+- The titles are overwhelmingly positive, with words like "fun", "success", or "creative".
+
+
+
+- "Wobble" is scored as a negative word here; and so are "fiction", "fall", and "break". The last two could clearly come from terms like "fall semester" or "lunch break". A similar analysis on the project *essays* or *summaries* could be more insightful. Then we can study how the sentiment of a proposal affect its chances to secure funding.
+
+
+
+
+
+### Project Resources Summary
+
+
+
+```{r}
+
+t1 <- train %>% unnest_tokens(word, project_resource_summary)
+
+t1_nostop <- t1 %>%
+
+  anti_join(stop_words, by = "word")
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 10", out.width="100%"}
+
+layout(matrix(c(1, 2), nrow=2), heights=c(1, 4))
+
+par(mar=rep(0, 4))
+
+plot.new()
+
+text(x=0.5, y=0.5, "Most frequent Project Resource Summary words\n (square-root scaling)", cex = 1.5)
+
+
+
+t1_nostop %>%
+
+  count(word) %>%
+
+  top_n(40, n) %>%
+
+  mutate(n = sqrt(n)) %>%
+
+  with(wordcloud(word, n, color = c("red4", "black", "darkblue")))
+
+```
+
+
+
+We find:
+
+
+
+- The focus on "students" is strongly shown; this is the most frequently mentioned word by far. Note, that this wordcloud uses a square-root scaling to adjust for the high frequency of "students". The other words fall into different categories such as the "classroom" and "school" environment, goals like "reading" and "learning", as well as concrete resources such as "headphones" or "book".
+
+
+
+
+
+```{r}
+
+foo <- t1 %>%
+
+  group_by(id) %>%
+
+  count() %>%
+
+  ungroup()
+
+
+
+bar <- t1_nostop %>%
+
+  group_by(id) %>%
+
+  count() %>%
+
+  ungroup()
+
+```
+
+
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 11", fig.height=3.5, out.width="100%"}
+
+p1 <- foo %>%
+
+  ggplot(aes(n)) +
+
+  geom_histogram(bins = 30, fill = "blue") +
+
+  scale_y_sqrt() +
+
+  scale_x_log10(breaks = c(5, 10, 20, 30, 50, 100)) +
+
+  labs(x = "Words") +
+
+  ggtitle("Number of words per resource summary")
+
+
+
+p2 <- bar %>%
+
+  ggplot(aes(n)) +
+
+  geom_histogram(bins = 30, fill = "darkgreen") +
+
+  scale_y_sqrt() +
+
+  scale_x_log10() +
+
+  labs(x = "Words") +
+
+  ggtitle("Number of words per resource summary\n excluding stop words")
+
+
+
+layout <- matrix(c(1,2),1,2,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1
+
+```
+
+
+
+
+
+We find:
+
+
+
+- Summaries are short and sweet, with peaks at just above 10 and 30 words, and very few instances of more than 50.
+
+
+
+- The distribution of significant words peaks around 10.
+
+
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 12", out.width="100%"}
+
+t1_nostop %>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, sort = TRUE) %>%
+
+  ungroup() %>%
+
+  group_by(sentiment) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  facet_wrap(~sentiment, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  coord_flip() +
+
+  ggtitle("Project Resource Summary - Sentiment analysis")
+
+```
+
+
+
+We find that again the sentiment is predominantly positive. I'm starting to get curious about why "wobble" is such a frequent word. Let's keep that question in mind as we move forward.
+
+
+
+
+
+### Project Essays - Samples {.tabset .tabset-fade .tabset-pills}
+
+
+
+Here we provide an overview of the four essay features in four different tabs; followed by their sentiments. Due to the relatively large word count of the essays we use random samples of 1000 entries each to keep the kernel light and fast. Setting random seeds ensures reproducibility over multiple runs.
+
+
+
+```{r}
+
+set.seed(4321)
+
+t1 <- train %>%
+
+  sample_n(1000) %>%
+
+  unnest_tokens(word, project_essay_1) %>%
+
+  anti_join(stop_words, by = "word") %>%
+
+  select(word)
+
+
+
+set.seed(4321)
+
+t2 <- train %>%
+
+  sample_n(1000) %>%
+
+  unnest_tokens(word, project_essay_2) %>%
+
+  anti_join(stop_words, by = "word") %>%
+
+  select(word)
+
+
+
+set.seed(4321)
+
+t3 <- train %>%
+
+  filter(!is.na(project_essay_3)) %>%
+
+  sample_n(1000) %>%
+
+  unnest_tokens(word, project_essay_3) %>%
+
+  anti_join(stop_words, by = "word") %>%
+
+  select(word)
+
+
+
+set.seed(4321)
+
+t4 <- train %>%
+
+  filter(!is.na(project_essay_3)) %>%
+
+  sample_n(1000) %>%
+
+  unnest_tokens(word, project_essay_4) %>%
+
+  anti_join(stop_words, by = "word") %>%
+
+  select(word)
+
+```
+
+
+
+
+
+The focus prompts that the essays should address are given as follows in the [data description](https://www.kaggle.com/c/donorschoose-application-screening/data):
+
+
+
+- Essay 1: "Open with the challenge facing your students"
+
+
+
+- Essay 2: "Tell us more about your students"
+
+
+
+- Essay 3: "Inspire your potential donors with an overview of the resources you're requesting"
+
+
+
+- Essay 4: "Close by sharing why your project is so important"
+
+
+
+Arguably, numbers 3 and 4 could be the more important ones as they outline the strategy (essay 4) and impact (essay 3) of the project (essay 1) for the students (essay 2).
+
+
+
+**Update: These 4 essays were only required before May 17th 2016. Read the [update](https://www.kaggle.com/c/donorschoose-application-screening/discussion/51352#292941) by the organisers. After May 17 2016 there are only 2 essays required:**
+
+
+
+- **Essay 1: "Describe your students: What makes your students special? Specific details about their background, your neighborhood, and your school are all helpful."**
+
+
+
+- **Essay 2: "About your project: How will these materials make a difference in your students' learning and improve their school lives?"**
+
+
+
+
+
+#### Wordcloud Essay 1
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 13", out.width="100%"}
+
+t1 %>%
+
+  count(word) %>%
+
+  top_n(40, n) %>%
+
+  mutate(n = sqrt(n)) %>%
+
+  with(wordcloud(word, n, color = c("red4", "black", "darkblue")))
+
+```
+
+
+
+
+
+#### Wordcloud Essay 2
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 14", out.width="100%"}
+
+t2 %>%
+
+  count(word) %>%
+
+  top_n(40, n) %>%
+
+  mutate(n = sqrt(n)) %>%
+
+  with(wordcloud(word, n, color = c("red4", "black", "darkblue")))
+
+```
+
+
+
+
+
+#### Wordcloud Essay 3
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 15", out.width="100%"}
+
+t3 %>%
+
+  count(word) %>%
+
+  top_n(40, n) %>%
+
+  mutate(n = sqrt(n)) %>%
+
+  with(wordcloud(word, n, color = c("red4", "black", "darkblue")))
+
+```
+
+
+
+
+
+#### Wordcloud Essay 4
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 16", out.width="100%"}
+
+t4 %>%
+
+  count(word) %>%
+
+  top_n(40, n) %>%
+
+  mutate(n = sqrt(n)) %>%
+
+  with(wordcloud(word, n, color = c("red4", "black", "darkblue")))
+
+```
+
+
+
+
+
+#### Sentiments Essay 1
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 17", out.width="100%"}
+
+t1 %>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, sort = TRUE) %>%
+
+  ungroup() %>%
+
+  group_by(sentiment) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  facet_wrap(~sentiment, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  coord_flip() +
+
+  ggtitle("Essay 1 - Sentiment analysis")
+
+```
+
+
+
+
+
+#### Sentiments Essay 2
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 18", out.width="100%"}
+
+t2 %>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, sort = TRUE) %>%
+
+  ungroup() %>%
+
+  group_by(sentiment) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  facet_wrap(~sentiment, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  coord_flip() +
+
+  ggtitle("Essay 2 - Sentiment analysis")
+
+```
+
+
+
+
+
+#### Sentiments Essay 3
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 19", out.width="100%"}
+
+t3%>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, sort = TRUE) %>%
+
+  ungroup() %>%
+
+  group_by(sentiment) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  facet_wrap(~sentiment, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  coord_flip() +
+
+  ggtitle("Essay 3 - Sentiment analysis")
+
+```
+
+
+
+
+
+#### Sentiments Essay 4
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 20", out.width="100%"}
+
+t4 %>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, sort = TRUE) %>%
+
+  ungroup() %>%
+
+  group_by(sentiment) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  facet_wrap(~sentiment, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  coord_flip() +
+
+  ggtitle("Essay 4 - Sentiment analysis")
+
+```
+
+
+
+
+
+#### Interpretation
+
+
+
+Those are the main points we derive from the overview wordclouds and sentiments:
+
+
+
+- All essays are very focussed on the "students" - to an extend that we might want to remove this word from the text since it appears not to carry much distinguishing power.
+
+
+
+- Essay 1 features words like "poverty", or "hard" to describe the challenging situation of the students. This is reflected also in the sentiments where those two terms have high negative scores. This essay appears to have the (relatively) most negative connotations. Nevertheless, the overall tone is strongly positive and we also find the highest positive score. This is even more true for essay 2, which focusses on the students, where the most important positive keyword is "love". Here, words like "learning" or "reading" describe the students. **Note that for the first month of the data essays 1 and 2 have a different scope.**
+
+
+
+- Essay 3, aimed at an overview of required resources, contains basic "materials" such as "books", "chairs", or "supplies" and even specific devices like "iPads". The sentiments remain positive. "Learning" is an important part of the impact statements in essay 4; along with "opportunity" and "provide". The proposed "project" really wants to make a "difference". The sentiments are similarly positive as for essay 3.
+
+
+
+
+
+## Resources file
+
+
+
+The additional `resources.csv` file provides details on the proposed project resources beyond the *project\_summary* and the *project\_essay\_3*. Here we visualise the required *prices* and *quantities* for each item as well as per project ID (since a single project can request multiple resources). We choose density plots for the resources and histograms for the (more discrete) quantities. We also add a +1 to every price to preserve the full information in the logarithmic scaling, since there are about 7000 zero-price entries:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 21", out.width="100%"}
+
+p1 <- res %>%
+
+  mutate(price = price+1) %>%
+
+  ggplot(aes(price)) +
+
+  geom_density(fill = "blue") +
+
+  scale_x_log10() +
+
+  labs(x = "Price (+1) per Item") +
+
+  ggtitle("Resource Prices")
+
+
+
+p2 <- res %>%
+
+  group_by(id) %>%
+
+  summarise(price = sum(price)+1) %>%
+
+  ungroup() %>%
+
+  ggplot(aes(price)) +
+
+  geom_density(fill = "blue") +
+
+  scale_x_log10(breaks = c(10, 20, 50, 100, 200, 500, 1000)) +
+
+  labs(x = "Price (+1) per Project ID")
+
+
+
+p3 <- res %>%
+
+  ggplot(aes(quantity)) +
+
+  geom_histogram(bins=30, fill = "darkgreen") +
+
+  scale_x_log10(breaks = c(1,2,5,10,20,50,100,200,500,1000)) +
+
+  scale_y_log10() +
+
+  labs(x = "Quantities per Item") +
+
+  ggtitle("Resource Quantities")
+
+
+
+p4 <- res %>%
+
+  group_by(id) %>%
+
+  summarise(quant = sum(quantity)) %>%
+
+  ungroup() %>%
+
+  ggplot(aes(quant)) +
+
+  geom_histogram(bins=30, fill = "darkgreen") +
+
+  scale_x_log10(breaks = c(1,2,5,10,20,50,100,200,500,1000)) +
+
+  labs(x = "Quantities per Project ID")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=FALSE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The *prices per item* peak around \$10, with a long tail beyond \$100 and extending to \$1000. The combined *prices per project ID* show a broad peak around a few 100 dollars and relatively few values below \$50.
+
+
+
+- The requested *quantities per item* decline gradually from 1 to beyond 500. *Per project* the situation looks different again, with a relatively flat distribution up to about 30 followed by faster decline.
+
+
+
+
+
+Are prices of zero dollars realistic in a request for funding? The answer might depend on the context, but this finding is certainly worth investigating. Here are the first 10 zero-price entries in the file:
+
+
+
+```{r}
+
+res %>%
+
+  filter(price == 0) %>%
+
+  mutate(description = str_sub(description, 1, 40)) %>%
+
+  head(10)
+
+```
+
+
+
+While "standard shipping" might indeed be free I'm not so sure about the other items. It's possible, that their price is included in a package of items, though. Let's suspend judgement for now but keep this potential issue in mind.
+
+
+
+
+
+## The Target feature
+
+
+
+Last, but certainly not least, here is the overview of the target: *project\_is\_approved*. We've waited to look at the target feature for a reason: following this section we will jump right into examining approval rates and I want the connection between features and overall approval fraction to be still fresh.
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 22", fig.height=3.5, out.width="100%"}
+
+foo <- train %>%
+
+  group_by(target) %>%
+
+  count()
+
+
+
+foo %>%
+
+  mutate(percentage = str_c(as.character(round(n/sum(foo$n)*100,1)), "%")) %>%
+
+  ggplot(aes(target, n, fill = target)) +
+
+  geom_col() +
+
+  geom_label(aes(label = percentage), position = position_dodge(width = 1)) +
+
+  labs(x = "Project approved") +
+
+  theme(legend.position = "none")
+
+```
+
+
+
+These numbers are fantastic! A project has a base probability of almost 85% to be approved. Frankly, this is much better than I was expecting. A lot of interesting projects appear to have been funded in the past.
+
+
+
+Of course, from a prediction point of view this makes for a pretty imbalanced sample. We need to be more careful when sampling training folds or additional test samples.
+
+
+
+
+
+# Target impact: approval rates
+
+
+
+After having a detailed look at the individual feature distributions we can now study the approval rates in the context of the overall data. The following sections will largely mirror our approach in the previous chapter to allow us to compare the resulting rates with the overall distributions.
+
+
+
+
+
+## Rates over Space and Time
+
+
+
+Here we plot how the numbers of approved and not-approved proposals change over time, along with the change in the fraction of approved projects in the bottom panel, where the dashed blue line gives the overall approval rate of 84.8%. The overlayed purple line is a smoothing fit:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 22", out.width="100%"}
+
+p1 <- train %>%
+
+  count(day, target) %>%
+
+  ggplot(aes(day, n, col = target)) +
+
+  geom_line() +
+
+  scale_y_log10() +
+
+  theme(legend.position = "top") +
+
+  labs(x = "", y = "Submitted Proposals", color = "Approved")
+
+
+
+p2 <- train %>%
+
+  count(day, target) %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)) %>%
+
+  ggplot(aes(day, frac)) +
+
+  geom_line(col = "darkgreen") +
+
+  geom_hline(yintercept = 0.848, col = "blue", linetype = 2) +
+
+  geom_smooth(col = "purple", method = "loess") +
+
+  labs(x = "Date", y = "Approved Fraction")
+
+
+
+layout <- matrix(c(1,2),2,1,byrow=FALSE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1
+
+```
+
+
+
+- The broad peak in submitted projects in summer 2016 leads to an decrease in the acceptance rate. This could be a quantity vs quality effet. After Oct/Nov the approval rates slowly decline only to increase again in Mar/Apr. There might be an underlying periodic structure here but this is hard to tell from only 1 yearly cycle.
+
+
+
+- Is there an overall trend of decreasing *approval fraction* with time? The approval rates during Apr/May 2016 were certainly higher than during Apr 2017.
+
+
+
+
+
+How are these long-term variations reflected in the monthly approval rates? Let's find out and also add the approval rates per week day, because you never know; plus there's some short-term variation evident in the plot. In addition, in the bottom panel we will show the approval rates per state to create a comprehensive temporal and spatial overview.
+
+
+
+To evaluate the variability we compute 95% binomial confidence ranges, using the `get_binCI` function defined above, which we overplot as errorbars:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 23", out.width="100%"}
+
+p1 <- train %>%
+
+  mutate(month = month(day, label = TRUE)) %>%
+
+  group_by(month, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(month, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "darkgreen", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "darkgreen") +
+
+  labs(x = "Month", y = "Approval rate [%]")
+
+
+
+p2 <- train %>%
+
+  mutate(wday = wday(day, label = TRUE, week_start = 1)) %>%
+
+  group_by(wday, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(wday, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "purple", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "purple") +
+
+  labs(x = "Day of the week", y = "Approval rate [%]")
+
+
+
+p3 <- train %>%
+
+  group_by(state, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(reorder(state, -frac, FUN = min), frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "orange", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "orange") +
+
+  theme(axis.text.x  = element_text(angle=60, hjust=1, vjust=0.9)) +
+
+  labs(x = "State", y = "Approval rate [%]")
+
+
+
+layout <- matrix(c(1,2,3,3),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- There is clearly some monthly variation present, with approval rates being low in Jul and Sep and high in May and Nov/Dec. The errorbars overlap during the early months but some of the later variation looks significant.
+
+
+
+- The days of the week pretty much overlap consistently; although Thursday might not be the best day to submit a proposal. Given the size of the errorbars this is a weak effect; though.
+
+
+
+- In terms of approvals per US state, there appears to a significant difference between "high approval" states such as Delaware (DE), Ohio (Oh), or Connecticut (CT) and "low approval" states like Florida (FL) or Texas (TX). Note not just the mean rate but also the relatively small size of the errorbars for some of them. The size of the effect ranges from 82 to 89 percent approval.
+
+
+
+Now we show what the map of the US looks like with the states coloured by project approval rates. We got from lower rates in orange to the higher ones in purple:
+
+
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 24", out.width="100%"}
+
+proj_state <- train %>%
+
+  group_by(state, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100) %>%
+
+  ungroup() %>%
+
+  mutate(state = as.character(state)) %>%
+
+  left_join(state2abb, by = "state") %>%
+
+  mutate(region = str_to_lower(region))
+
+
+
+us %>%
+
+  left_join(proj_state, by = "region") %>%
+
+  ggplot() + 
+
+  geom_polygon(aes(x = long, y = lat, fill = frac, group = group), color = "white") +
+
+  geom_text(data=state_center, aes(long, lat, label = name), size=4, color = "grey20") +
+
+  coord_fixed(1.3) +
+
+  scale_fill_continuous(low='orange', high='purple4', guide='colorbar') +
+
+  labs(fill = 'Approval Rate') +
+
+  theme_void() +
+
+  ggtitle("Project Approval Fraction per US state")
+
+```
+
+
+
+We find:
+
+
+
+- There are no strong relations between the approval rates in neighbouring states; although the south looks a bit lighter than the rest. 
+
+
+
+- Comparing Figures 2 and 23, we have to be careful since in states with lower overall numbers of proposals the statistical uncertainties will be larger. That's why Wyoming (WY), a deep purple state in our map, has actually large error bars in Fig. 23.
+
+
+
+
+
+## Teacher characteristics
+
+
+
+Next we examine the impact of the *teacher characteristics* on the approval rate. This includes quantifying the *experience* of a teacher in the DonorsChoose proposal process by measuring how submitting multiple proposals affects the success rates (left panels). In the right panels we study the impact of the teacher prefix and gender; with the dashed horizontal line indicating again the overall average approval rate of 84.8%.
+
+
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 25", out.width="100%"}
+
+p1 <- train %>%
+
+  count(teacher_id, target) %>%
+
+  ggplot(aes(n, fill = target)) +
+
+  geom_density(bw = 0.1, alpha = 0.5) +
+
+  scale_x_log10() +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Number of Proposals per Teacher ID") +
+
+  ggtitle("Teacher Characteristics")
+
+
+
+p2 <- train %>%
+
+  count(teacher_number_of_previously_posted_projects, target) %>%
+
+  ggplot(aes(n, fill = target)) +
+
+  geom_density(alpha = 0.5, bw = 0.2) +
+
+  scale_x_log10() +
+
+  labs(x = "Number of Previous Proposals")
+
+
+
+p3 <- train %>%
+
+  filter(!is.na(teacher_prefix) & teacher_prefix != "Dr.") %>%
+
+  group_by(teacher_prefix, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(teacher_prefix, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "darkgreen", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "darkgreen") +
+
+  labs(x = "Teacher Prefix", y = "Approval rate [%]")
+
+
+
+p4 <- train %>%
+
+  mutate(gender = case_when(
+
+    prefix == "Ms." | prefix == "Mrs."  ~ "Female",
+
+    prefix == "Mr."  ~ "Male"
+
+  )) %>%
+
+  filter(!is.na(gender)) %>%
+
+  group_by(gender, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(gender, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "darkgreen", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "darkgreen") +
+
+  labs(x = "Teacher Gender", y = "Approval rate [%]")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=FALSE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+```
+
+
+
+We find:
+
+
+
+- Successful teachers have (on average) submitted a larger number of proposals during the `training` period and have also more experience from previous years (left panels). Experience seems to make a difference here.
+
+
+
+- In terms of the *teacher prefix* it is surprising to see that those who chose "Teacher" have a significantly lower approval rate for their projects. There is also a much smaller but still statistically significant difference between the teachers with "Mrs." and "Ms." prefixes; which is curious. It is tempting to speculate whether those prefixes might relate to the age and thereby experience of the teacher (compare the left panels), but for now we leave the question open and will come back to it in our upcoming analysis of multi-parameter correlations.
+
+
+
+- The approval rates for *female vs male* teachers are so close, within their errorbars, that there is probably no real effect present. If anything, the female teachers are slightly more successful with their project funding, but again there might be multi-parameter effects at play here.
+
+
+
+
+
+We stay with the *experience* topic for a moment and look at it from a different angle: We categorise the number of current and previous proposals into (approximately) logarithmically-space bins and then estimate how the approval fraction changes as teachers submit more projects:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 26", out.width="100%"}
+
+foo <- train %>%
+
+  group_by(teacher_id, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100,
+
+         sum = `TRUE` + `FALSE`)
+
+
+
+p1 <- foo %>%
+
+  ungroup() %>%
+
+  mutate(sum = as.integer(sum)) %>%
+
+  mutate(props = case_when(
+
+    sum == 1 ~ "1",
+
+    sum == 2 ~ "2",
+
+    sum > 2 & sum <= 5 ~ "3-5",
+
+    sum > 5 & sum <= 10 ~ "6-10",
+
+    sum > 10 ~ ">10"
+
+  )) %>%
+
+  mutate(props = fct_relevel(as.factor(props), ">10", after = 4)) %>%
+
+  ggplot(aes(frac, props, fill = props)) +
+
+  geom_density_ridges(bandwidth = 2.84) +
+
+  theme(legend.position = "none") +
+
+  geom_vline(xintercept = 84.8, col = "blue", linetype = 2) +
+
+  labs(x = "Approved Fraction [%]", y = "# Current Projects")
+
+
+
+p2 <- foo %>%
+
+  ungroup() %>%
+
+  mutate(sum = as.integer(sum)) %>%
+
+  mutate(props = case_when(
+
+    sum == 1 ~ "1",
+
+    sum == 2 ~ "2",
+
+    sum > 2 & sum <= 5 ~ "3-5",
+
+    sum > 5 & sum <= 10 ~ "6-10",
+
+    sum > 10 ~ ">10"
+
+  )) %>%
+
+  mutate(props = fct_relevel(as.factor(props), ">10", after = 4)) %>%
+
+  group_by(props) %>%
+
+  mutate(frac2 = mean(frac)) %>%
+
+  ungroup() %>%
+
+  ggplot(aes(props, frac2)) +
+
+  geom_point(color = "purple", size = 4) +
+
+  labs(x = "# Current Projects", y = "Mean Approved Fraction [%]")
+
+
+
+bar <- train %>%
+
+  mutate(n = teacher_number_of_previously_posted_projects) %>%
+
+  mutate(props = case_when(
+
+    n == 0 ~ "0",
+
+    n == 1 ~ "1",
+
+    n > 1 & n <= 10 ~ "2-10",
+
+    n > 10 & n <= 100 ~ "10-100",
+
+    n > 100 ~ ">100"
+
+  ))
+
+
+
+p3 <- bar %>%
+
+  mutate(props = fct_relevel(as.factor(props), "2-10", after = 2)) %>%
+
+  mutate(props = fct_relevel(props, "10-100", after = 3)) %>%
+
+  ggplot(aes(target, fill = props)) +
+
+  geom_bar(position = "dodge") +
+
+  scale_y_log10() +
+
+  labs(x = "Approved", fill = "# Previous\nProposals")
+
+
+
+p4 <- bar %>%
+
+  select(props, target) %>%
+
+  group_by(props, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ungroup() %>%
+
+  mutate(props = fct_relevel(as.factor(props), "0", "1", "2-10", "10-100", ">100")) %>%
+
+  ggplot(aes(props, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "purple", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "purple") +
+
+  labs(x = "Number of previous Proposals", y = "Approval rate [%]")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=FALSE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+```
+
+
+
+
+
+We find:
+
+
+
+- The left panels shows the number of proposals per *teacher\_id* in the `training` data set vs the approval rate. In the *ridgeline plot* (via [ggridges](https://cran.r-project.org/web/packages/ggridges/)) at the top we see that only very few teachers who submitted 2 projects had both rejected. For 10 projects or more, the distribution is clearly centered beyond the 84.8% line. In the bottom panel we plot the *mean approved fraction* for each category which confirms our impression that **a higher number of submitted projects leads to a higher success rate.**
+
+
+
+- In the right panels we use the *teacher\_number\_of\_previously\_posted\_projects* variable as basis for a similar analysis. First we show the total numbers of approved vs rejected proposals in each category and then we plot the corresponding approval rate. Also here we see a **significant impact of previous projects on the current approval rate.** Those teachers who submitted more than 100 past projects end up with a success rate of more than 92%. Experience does seem to matter.
+
+
+
+
+
+## Approval by Category
+
+
+
+Next, we will study the approval rates per *subject and grade categories* (compare Fig. 5). Here we only include those entries with relatively small error ranges for the *subject categories* (less than 10%) and *subject sub-categories* (less than 5%). This is done to keep the plot readable, and because those entries with large errors won't give us any significant insights. I've also truncated the *sub-category* labels a bit and made them and the *category* labels smaller to resolve the data spread better:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 26", fig.height=6, out.width="100%"}
+
+p1 <- train %>%
+
+  group_by(sub, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(reorder(sub, -frac, FUN = min), frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "blue", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "blue") +
+
+  labs(x = "Subject categories", y = "Approval rate [%]") +
+
+  theme(axis.text.y=element_text(size=6)) +
+
+  coord_flip()
+
+
+
+p2 <- train %>%
+
+  group_by(sub_sub, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  filter(upr-lwr < 5) %>%
+
+  ungroup() %>%
+
+  mutate(sub_sub = str_sub(sub_sub,1,27)) %>%
+
+  ggplot(aes(reorder(sub_sub, -frac, FUN = min), frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "blue", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "blue") +
+
+  labs(x = "Subject sub-categories", y = "Approval rate [%]") +
+
+  theme(axis.text.y=element_text(size=6)) +
+
+  coord_flip()
+
+
+
+p3 <- train %>%
+
+  mutate(grades = as.factor(str_sub(cat, 8, -1))) %>%
+
+  mutate(grades = fct_relevel(grades, "PreK-2", after = 0)) %>%
+
+  group_by(grades, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(grades, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "darkgreen", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "darkgreen") +
+
+  labs(x = "Grade categories", y = "Approval rate [%]") +
+
+  coord_flip()
+
+
+
+layout <- matrix(c(1,1,1,1,1,1,2,2,2,2,3,3),6,2,byrow=FALSE)
+
+multiplot(p2, p1, p3, layout=layout)
+
+```
+
+
+
+We find:
+
+
+
+- Average approval rates for the *subject categories* (upper right panel) range from 80% to above 90% for "Warmth, Care & Hunger", which certainly is an important funding goal. We see significant differences accross the categories, with 10 being below the global average and another 7 above. This indicates a large spread in category-specific approval rates. Note, that for some (such as "Maths & Science" or "Literacy and Language") the errors are very small. Globally, there seems to be a trend that mathematical and scientific projects are less frequently approved than those focussed on literacy.
+
+
+
+- Within the *subject sub-categories* in the left panel we see a very similar trend to the *subject categories*. It is noteworthy that "Special Needs" projects have below average rates.
+
+
+
+- There are also clear trends for the *project grade categories* (lower right panel), in that projects for grade "3-5" pupils are most likely to be approved. Those for grade 9-12 students have a significantly lower likelyhood than grade "3-5" and also than the "PreK-2" projects. 
+
+
+
+
+
+Let's stick with the "Maths vs Literature" discrepancy for a moment. We will try to sharpen this result by grouping together all the *subject categories* that contain the word-stems "Math" and "Lit" - and then compare their approval fractions. We also add the word-stems "Art" and "Health" as separate features - control groups, if you will - since they are present in quite a few *category* entries as well. To make for a cleaner distinction, we discard all *subject categories* where there is more than 1 of the 4 word-stems found (e.g. "Literacy & Language, Math & Science"):
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 27", fig.height=3, out.width="100%"}
+
+train %>%
+
+  mutate(maths = as.integer(str_detect(sub, "Math")),
+
+         literature = as.integer(str_detect(sub, "Lit")),
+
+         arts = as.integer(str_detect(sub, "Art")),
+
+         health = as.integer(str_detect(sub, "Health"))
+
+  ) %>%
+
+  filter(maths+literature+arts+health == 1) %>%
+
+  select(maths, literature, arts, health, target) %>%
+
+  gather(maths, literature, arts, health, key = "sub", value = "cases") %>%
+
+  filter(cases == 1) %>%
+
+  mutate(sub = as.factor(sub)) %>%
+
+  group_by(sub, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(reorder(sub, -frac, FUN = min), frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "orange3", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "orange3") +
+
+  labs(x = "Subject categories", y = "Approval rate [%]") +
+
+  coord_flip()
+
+```
+
+
+
+We find that there is indeed a significant and notable difference between the approval rates of "maths" (< 83%) and "literature" (> 86.5%) subjects. It's not a huge effect, but it is notable. Our "arts" and "health" controls overlap with each other and with the average approval rate.
+
+
+
+
+
+## Resources vs Approval
+
+
+
+We defer the text features for a moment, and look at the `resources` file first. To get the approval rates we *join* the `training` data by *id*. To show the impact of the item quantities we will use fill histograms that need to be seen in combination with Fig. 21 to be properly interpreted:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 28", out.width="100%"}
+
+foo <- train %>%
+
+  select(id, target)
+
+
+
+p1 <- res %>%
+
+  right_join(foo, by = "id") %>%
+
+  mutate(price = price+1) %>%
+
+  ggplot(aes(price, fill = target)) +
+
+  geom_density(alpha = 0.5, bw = 0.2) +
+
+  scale_x_log10() +
+
+  labs(x = "Price (+1) per Item", fill = "Approved") +
+
+  ggtitle("Resource Prices")
+
+
+
+p2 <- res %>%
+
+  group_by(id) %>%
+
+  summarise(price = sum(price)+1) %>%
+
+  ungroup() %>%
+
+  right_join(foo, by = "id") %>%
+
+  ggplot(aes(price, fill = target)) +
+
+  geom_density(alpha = 0.5, bw = 0.1) +
+
+  scale_x_log10(breaks = c(10, 20, 50, 100, 200, 500, 1000)) +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Price (+1) per Project ID")
+
+
+
+p3 <- res %>%
+
+  right_join(foo, by = "id") %>%
+
+  filter(!is.na(quantity)) %>%
+
+  ggplot(aes(quantity, fill = target)) +
+
+  geom_histogram(bins=30, position = "fill") +
+
+  geom_hline(yintercept = 0.848, color = "purple") +
+
+  scale_x_log10(breaks = c(1,2,5,10,20,50,100,200,500,1000)) +
+
+  labs(x = "Quantities per Item") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("Resource Quantities")
+
+
+
+p4 <- res %>%
+
+  group_by(id) %>%
+
+  summarise(quant = sum(quantity)) %>%
+
+  ungroup() %>%
+
+  right_join(foo, by = "id") %>%
+
+  ggplot(aes(quant, fill = target)) +
+
+  geom_histogram(bins=30, position = "fill") +
+
+  geom_hline(yintercept = 0.848, color = "purple") +
+
+  scale_x_log10(breaks = c(1,2,5,10,20,50,100,200,500,1000)) +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Quantities per Project ID")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=FALSE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- There is no significant difference between the *prices per item* for the approved and non-approved projects. The approved ones contain on average slightly cheaper items, as well as a somewhat heavier tail of very expensive ones; but the deviations are small.
+
+
+
+- The *costs per project* show a somewhat different picture. Note, that in contrast to Fig. 21 we chose a larger kernel bandwidth to smooth out the small-scale structures. Here we see that the approved projects have a heavier tail at lower prices than the rejected ones, which in turn are shifted towards higher costs on this logarithmic scale.
+
+
+
+- The *quantities per item* show somewhat of an approval peak around 20-100 in constrast to numbers of 1-10. In contrast, the *quantities per project* indicate that proposals with fewer requested items get funded more frequently. There will likely be relationship between item quantity and price, which we will study in the next chapter together with other multi-parameter correlations.
+
+
+
+
+
+We will follow-up these plots with two other visualisations. First, we will group the integer variable of *quantities per project ID* into a few distinct categories. This grouping, or "binning", is a great way to increase the signal-to-noise ratio in our data (albeit at the expense of lower resolution in the binning variable). The second plot will study the empirical cumulative density functions (ECDF) for the *costs per project* (approved vs rejected):
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 29", fig.height=3, out.width="100%"}
+
+bar <- res %>%
+
+  group_by(id) %>%
+
+  summarise(quant = sum(quantity)) %>%
+
+  ungroup() %>%
+
+  right_join(foo, by = "id") %>%
+
+  mutate(stock = case_when(
+
+    quant > 0 & quant <= 10  ~ "1-10",
+
+    quant > 10 & quant <= 20  ~ "10-20",
+
+    quant > 20 & quant <= 50  ~ "20-50",
+
+    quant > 50 & quant <= 100  ~ "50-100",
+
+    quant > 100 & quant <= 200  ~ "100-200",
+
+    quant > 200  ~ ">200"
+
+    )) %>%
+
+  mutate(stock = fct_relevel(as.factor(stock),
+
+                             "1-10", "10-20", "20-50", "50-100", "100-200", "200-500", ">500"))
+
+
+
+p1 <- bar %>%
+
+  group_by(stock, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(reorder(stock, -frac, FUN = min), frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "darkgreen", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "darkgreen") +
+
+  labs(x = "Quantities per Project ID", y = "Approval rate [%]")
+
+   
+
+   
+
+p2 <- res %>%
+
+  group_by(id) %>%
+
+  summarise(price = sum(price)+1) %>%
+
+  ungroup() %>%
+
+  right_join(foo, by = "id") %>%
+
+  ggplot(aes(price, color = target)) +
+
+  stat_ecdf(geom = "step", size = 2) +
+
+  scale_x_log10() +
+
+  labs(x = "Price (+1) per Project ID", color = "Approved") +
+
+  theme(legend.position = "bottom")
+
+  
+
+layout <- matrix(c(1,2),1,2,byrow=FALSE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The *quantity bins* show that projects with fewer resources are more likely to get funded; with a strong drop from "1-10" items to anything above 10. Note, that here we don't look at the corresponding costs, yet.
+
+
+
+- As expected, the ECDF distributions are different for the *combined costs per project* are different for the approved vs rejected projects. We can show that this difference is strongly significant using a Wilcoxon rank sum test (aka U-test):
+
+
+
+```{r}
+
+bar <- res %>%
+
+  group_by(id) %>%
+
+  summarise(price = sum(price)+1) %>%
+
+  ungroup() %>%
+
+  right_join(foo, by = "id")
+
+
+
+apr <- bar %>% filter(target == TRUE)
+
+rej <- bar %>% filter(target == FALSE)
+
+
+
+utest <- wilcox.test(apr$price, rej$price, alternative = "less")
+
+print(utest)
+
+```
+
+
+
+
+
+# Text Features and Approval Rates
+
+
+
+This analysis step deserves its own chapter, since natural language processing is, to a certain extent, conceptually different from analysing numerical data. In Sect. 4.4 we had seen which common words and sentiments were found in the *title*, *essays*, and *resource\_summary* features. Now we will study their impact on the approval rates.
+
+
+
+
+
+## The mystery of the missing essays - now solved
+
+
+
+Our first step, however, is a numerical one; slowly easing us into working with the text features. At the very start of our analysis we noticed that there are a number of missing values in the *essay\_3* and *essay\_4* columns. In fact, for both of them we have the same percentage of `r sprintf("%.1f", sum(is.na(train$project_essay_4))/nrow(train)*100)`% NAs in our `training data` set. A quick check confirms that those are the same projects. That's almost everyone.
+
+
+
+Why is that? The data description notes that teachers were required to respond to four writing prompts (see above). Wouldn't it hurt your chances if you leave out two of them? Or is the problem in the data? Let's find out.
+
+
+
+It was my first hunch to look at the dates, and it proved to be a useful one:
+
+
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 30", out.width="100%"}
+
+p1 <- train %>%
+
+  mutate(essay3_exists = !is.na(project_essay_3)) %>%
+
+  group_by(essay3_exists, day) %>%
+
+  count() %>%
+
+  ungroup() %>%
+
+  ggplot(aes(day, n, col = essay3_exists)) +
+
+  geom_line() +
+
+  labs(x = "Date", y = "Submitted Proposals") +
+
+  ggtitle("Training data")
+
+
+
+p2 <- test %>%
+
+  mutate(essay3_exists = !is.na(project_essay_3)) %>%
+
+  group_by(essay3_exists, day) %>%
+
+  count() %>%
+
+  ungroup() %>%
+
+  ggplot(aes(day, n, col = essay3_exists)) +
+
+  geom_line() +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Date", y = "Submitted Proposals") +
+
+  ggtitle("Test data")
+
+  
+
+p3 <- train %>%
+
+  mutate(essay3_exists = !is.na(project_essay_3)) %>%
+
+  group_by(essay3_exists, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(essay3_exists, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(color = "darkgreen", size = 4) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), color = "darkgreen") +
+
+  labs(x = "Essay 3 & 4 exist", y = "Approval rate [%]") +
+
+  ggtitle("Do all essays exist\nin the training data?")
+
+
+
+layout <- matrix(c(1,1,2,3),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Data for *project\_essays* 3 and 4 only exists up to 2016-05-17 in the training data. This is one example of a situation where we can glimpse into the test data with a good conscience: and we find the same effect. This looks odd to me. Not like a teacher decision to leave out some data, but maybe some issue with the data itself? I'll open a discussion topic; let me know your thoughts.
+
+
+
+- We also see that those projects with existing essays 3 & 4 have higher approval rates. However, since those entries are mostly from May 2016 we have to be careful in interpreting it in view of Fig. 23. We might also need to re-think our interpretation of that figure in this new context.
+
+
+
+**Update: the organisers [revealed](https://www.kaggle.com/c/donorschoose-application-screening/discussion/51352#292941) that from May 17th 2016 onward the essay requirements changed. See the discussion topic link and the updates above.**
+
+
+
+**This means, that before May 17th the essays had a different focus, especially essay 2 which in the new version is pretty much a mix of the old essays 3 and 4. This needs to be taken into account when drawing inference from the text analysis.**
+
+
+
+
+
+## Project Titles and TF-IDF
+
+
+
+Let's move on to the proper text features. Again, we start with the *project\_titles* which, ideally, should be a succinct description of the proposal. To analyse what separates the successful from the unsuccessful funding requests we employ the approach of "Term Frequency times Inverse Document Frequency" (TF-IDF). The idea is rather straight forward:
+
+
+
+- We want to know which words (aka "Terms") are most "Frequent" in a certain group (e.g. the approved projects). So, we just count the words. This is the "TF" part. Remember that we remove common "stop words" such as "the" or "an" which don't carry much signal.
+
+
+
+- However, this also gives us a lot of words that are common between the two groups (approved vs rejected); probably like "student" or "classroom". In order to eliminate those terms, we take into account how rare a term is overall in the whole "document" (i.e. our complete text data). This is the "inverse document frequency". "Inverse", because we want to focus on words that are relatively rare overall but more frequent in one group than another.
+
+
+
+The wonderful `tidytext` package gives us a simple tool to derive the TF-IDF numbers from a tidy set of word counts: `bind_tf_idf`. Here we use it to shine light on the vocabulary of approved vs rejected projects. As always: click the `Code` button to see under the hood of what's going on here.
+
+
+
+In addition to employing the `tidytext` tools, we also do a little bit of cleaning ourselves by removing all the `\\n` and `\\r` formatting commands that are still present in the text. Check out the [`stringr` package](https://cran.r-project.org/web/packages/stringr/vignettes/stringr.html), part of the `tidyverse` for easy to use string manipulation:
+
+
+
+```{r}
+
+t1 <- train %>%
+
+  mutate(project_title = str_replace_all(project_title, "\\\\n", " ")) %>%
+
+  mutate(project_title = str_replace_all(project_title, "\\\\r", " ")) %>%
+
+  unnest_tokens(word, project_title) %>%
+
+  anti_join(stop_words, by = "word")
+
+
+
+frequency <-t1 %>%
+
+  count(target, word)
+
+
+
+tf_idf <- frequency %>%
+
+  bind_tf_idf(word, target, n)
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 31", fig.height=4, out.width="100%"}
+
+tf_idf %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(target) %>%
+
+  top_n(10, tf_idf) %>%
+
+  ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive words", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ target, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of Titles for approved vs rejected programs - Top 10 words")
+
+``` 
+
+
+
+We find:
+
+
+
+- "Elmo" is super popular in the *approved projects*; as are all "puppets". We also have specific resources such as "keyboards" or "headphones". "Hydration" is a big topic, too.
+
+
+
+- The TF-IDFs for the *rejected projects* are more difficult to interpret; mostly because of the lower number of *project\_titles* we can work with. In the top 10 everything has pretty much the same TF-IDF, except for "paycheck" and "fields". That doesn't tell us an aweful lot.
+
+
+
+
+
+## Resource summaries with bigrams
+
+
+
+Let's do the same analysis with the *project\_resource\_summaries*. These texts are considerably longer than the titles and should give our TF-IDF more material to work with. Those are the resulting top 10 words:
+
+
+
+
+
+```{r}
+
+t1 <- train %>%
+
+  mutate(project_resource_summary = str_replace_all(project_resource_summary, "\\\\n", " ")) %>%
+
+  mutate(project_resource_summary = str_replace_all(project_resource_summary, "\\\\r", " ")) %>%
+
+  unnest_tokens(word, project_resource_summary) %>%
+
+  anti_join(stop_words, by = "word")
+
+
+
+frequency <-t1 %>%
+
+  count(target, word)
+
+
+
+tf_idf <- frequency %>%
+
+  bind_tf_idf(word, target, n)
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 31", fig.height=4, out.width="100%"}
+
+tf_idf %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(target) %>%
+
+  top_n(10, tf_idf) %>%
+
+  ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive words", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ target, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of resource summaries for\napproved vs rejected programs - Top 10 words")
+
+``` 
+
+
+
+We find:
+
+
+
+- There are a few distinct words that could become useful predictors for a successful proposal. "Hardcover", "protein", and also "lockers" are frequently mentioned. In contrast, "pressures" and "pastry" primarily occur in rejected projects.
+
+
+
+Some of the other terms are hard to interpret on their own. Therefore, we move on to a variation in our approach. Now, instead of looking at single words only, we will study *pairs of words* instead. These are called "bigrams". We can use our TF-IDF tool on bigrams in the same way as for individual words, and it will tell us the most characteristic word combinations for each group.
+
+
+
+In case you're wondering, our analysis doesn't have to end with bigrams either. In text analysis there is the general concept of an  *n-gram*, with *n* being the number of connected words we're interested in. A bigram would be a 2-gram (but "bigram" sounds better), and there are 3-grams, 4-grams, and so on. We will use 3-grams later on.
+
+
+
+When extracting our bigrams, there is another small adjustment we need to make: When we want to remove the unwanted stop words, then we need to *separate* the bigrams first, do the filter, and then *unite* them back together. Conveniently, `separate` and `unite` are the names of the tidy *dplyr* functions we will use:
+
+
+
+```{r}
+
+t2 <- train %>%
+
+  mutate(project_resource_summary = str_replace_all(project_resource_summary, "\\\\n", " ")) %>%
+
+  mutate(project_resource_summary = str_replace_all(project_resource_summary, "\\\\r", " ")) %>%
+
+  unnest_tokens(bigram, project_resource_summary, token = "ngrams", n = 2)
+
+
+
+bi_sep <- t2 %>%
+
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+
+
+bi_filt <- bi_sep %>%
+
+  filter(!word1 %in% stop_words$word) %>%
+
+  filter(!word2 %in% stop_words$word)
+
+
+
+# for later
+
+bigram_counts <- bi_filt %>%
+
+  count(word1, word2, sort = TRUE)
+
+
+
+t2 <- bi_filt %>%
+
+  unite(bigram, word1, word2, sep = " ")
+
+
+
+t2_tf_idf <- t2 %>%
+
+  count(target, bigram) %>%
+
+  bind_tf_idf(bigram, target, n) %>%
+
+  arrange(desc(tf_idf))
+
+```
+
+
+
+
+
+Now we can plot the most frequent bigrams found in the *resource\_summaries* of the approved vs rejected proposals:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 32", out.width="100%"}
+
+t2_tf_idf %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(target) %>%
+
+  top_n(8, tf_idf) %>%
+
+  ggplot(aes(reorder(bigram, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive bigrams", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ target, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of resource summaries for\napproved vs rejected programs - Top 8 bigrams")
+
+```
+
+
+
+We find:
+
+
+
+- Turns out that ["Mo Willems"](https://en.wikipedia.org/wiki/Mo_Willems) (our top 2 TF-IDF words) is the name of a popular author of children's books, and that "3120" is the "chromebook 3120". Asking for both resources is a good indicator for a successful proposal, even more so if you can add other "prize winning" materials. "Hokki" is an ergonomic stool. Lego sets are awesome for all ages, really.
+
+
+
+- The rejected list contains terms such as "safety supplies" (somewhat surprising, since it sounds important), "development kits", or "activity charts".
+
+
+
+Here are two examples for resource summaries that contain "Mo Willems":
+
+
+
+```{r}
+
+train %>%
+
+  filter(id == "p224452" | id == "p137429") %>%
+
+  .$project_resource_summary
+
+```
+
+
+
+
+
+## Essay Characteristics {.tabset .tabset-fade .tabset-pills}
+
+
+
+Let's move on to the *project\_essays*. Those will contain the most text and hopefully also the largest amount of information. Due to the change in essay requirements on May 17th 2016 (see above), we will only look at the data from that day onward. I encourage you to try adding more information by combining the 4 old essays into the new scheme.
+
+
+
+We will start directly with bigrams and then also add "trigrams"; sequences of 3 consecutive words. The extraction and treatment of these trigrams is directly analogous to how we derive the bigrams. To keep the Kernel light (and manageable on my laptop) we sample 10k rows from the `training data`. This time, in order to get a similar number of approved and rejected proposals, we weigh the sampling by the overall accepted fraction.
+
+
+
+Then we add a comparison of the sentiments for each essay in terms of the approved vs rejected groups. Finally, we introduce a different style of visualisation by constructing a *network of bigrams*. These networks will map out the way that words are frequently connected with other words. Seen in context, these networks will highlight common terms and phrases. From a practical point of view, we will be using the *igraph* package to build the network and the *ggraph* package, within the *tidyverse*, to visualise it.
+
+
+
+Recall, that those are the writing prompts for the two essays **after May 17th 2016**:
+
+
+
+- Essay 1: "Describe your students: What makes your students special? Specific details about their background, your neighborhood, and your school are all helpful."
+
+
+
+- Essay 2: "About your project: How will these materials make a difference in your students' learning and improve their school lives?"
+
+
+
+
+
+### Essay 1 - bigrams
+
+
+
+```{r}
+
+set.seed(4242)
+
+t2 <- train %>%
+
+  filter(day >= ymd("20160517")) %>%
+
+  mutate(weight = abs(as.integer(target) - 0.848)) %>%
+
+  sample_n(1e4, weight = weight) %>%
+
+  mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\n", " ")) %>%
+
+  mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\r", " ")) %>%
+
+  unnest_tokens(bigram, project_essay_1, token = "ngrams", n = 2)
+
+
+
+bi_sep <- t2 %>%
+
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+
+
+bi_filt <- bi_sep %>%
+
+  filter(!word1 %in% stop_words$word) %>%
+
+  filter(!word2 %in% stop_words$word)
+
+
+
+# for later
+
+bigram_counts_1 <- bi_filt %>%
+
+  count(word1, word2, sort = TRUE)
+
+
+
+t2 <- bi_filt %>%
+
+  unite(bigram, word1, word2, sep = " ")
+
+
+
+t2_tf_idf <- t2 %>%
+
+  count(target, bigram) %>%
+
+  bind_tf_idf(bigram, target, n) %>%
+
+  arrange(desc(tf_idf))
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 33", out.width="100%"}
+
+t2_tf_idf %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(target) %>%
+
+  top_n(10, tf_idf) %>%
+
+  ggplot(aes(reorder(bigram, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive bigrams", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ target, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of Essay 1 for\napproved vs rejected programs - Top bigrams")
+
+```
+
+
+
+
+
+### Essay 2 - bigrams
+
+
+
+```{r}
+
+set.seed(4321)
+
+t2 <- train %>%
+
+  filter(day >= ymd("20160517")) %>%
+
+  mutate(weight = abs(as.integer(target) - 0.848)) %>%
+
+  sample_n(1e4, weight = weight) %>%
+
+  mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\n", " ")) %>%
+
+  mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\r", " ")) %>%
+
+  unnest_tokens(bigram, project_essay_2, token = "ngrams", n = 2)
+
+
+
+bi_sep <- t2 %>%
+
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+
+
+bi_filt <- bi_sep %>%
+
+  filter(!word1 %in% stop_words$word) %>%
+
+  filter(!word2 %in% stop_words$word)
+
+
+
+# for later
+
+bigram_counts_2 <- bi_filt %>%
+
+  count(word1, word2, sort = TRUE)
+
+
+
+t2 <- bi_filt %>%
+
+  unite(bigram, word1, word2, sep = " ")
+
+
+
+t2_tf_idf <- t2 %>%
+
+  count(target, bigram) %>%
+
+  bind_tf_idf(bigram, target, n) %>%
+
+  arrange(desc(tf_idf))
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 32", out.width="100%"}
+
+t2_tf_idf %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(target) %>%
+
+  top_n(10, tf_idf) %>%
+
+  ggplot(aes(reorder(bigram, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive bigrams", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ target, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of Essay 2 for\napproved vs rejected programs - Top bigrams")
+
+```
+
+
+
+
+
+### Essay 1 - trigrams
+
+
+
+```{r}
+
+set.seed(4242)
+
+t3 <- train %>%
+
+  filter(day >= ymd("20160517")) %>%
+
+  mutate(weight = abs(as.integer(target) - 0.848)) %>%
+
+  sample_n(1e4, weight = weight) %>%
+
+  mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\n", " ")) %>%
+
+  mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\r", " ")) %>%
+
+  unnest_tokens(trigram, project_essay_1, token = "ngrams", n = 3)
+
+
+
+bi_sep <- t3 %>%
+
+  separate(trigram, c("word1", "word2", "word3"), sep = " ")
+
+
+
+bi_filt <- bi_sep %>%
+
+  filter(!word1 %in% stop_words$word) %>%
+
+  filter(!word2 %in% stop_words$word)
+
+
+
+t3 <- bi_filt %>%
+
+  unite(trigram, word1, word2, word3, sep = " ")
+
+
+
+t3_tf_idf <- t3 %>%
+
+  count(target, trigram) %>%
+
+  bind_tf_idf(trigram, target, n) %>%
+
+  arrange(desc(tf_idf))
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 33", out.width="100%"}
+
+t3_tf_idf %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(target) %>%
+
+  top_n(5, tf_idf) %>%
+
+  ggplot(aes(reorder(trigram, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive trigrams", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ target, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of Essay 1 for\napproved vs rejected programs - Top trigrams")
+
+```
+
+
+
+
+
+### Essay 2 - trigrams
+
+
+
+```{r}
+
+set.seed(4321)
+
+t3 <- train %>%
+
+  filter(day >= ymd("20160517")) %>%
+
+  mutate(weight = abs(as.integer(target) - 0.848)) %>%
+
+  sample_n(1e4, weight = weight) %>%
+
+  mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\n", " ")) %>%
+
+  mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\r", " ")) %>%
+
+  unnest_tokens(trigram, project_essay_2, token = "ngrams", n = 3)
+
+
+
+bi_sep <- t3 %>%
+
+  separate(trigram, c("word1", "word2", "word3"), sep = " ")
+
+
+
+bi_filt <- bi_sep %>%
+
+  filter(!word1 %in% stop_words$word) %>%
+
+  filter(!word2 %in% stop_words$word) %>%
+
+  filter(!word3 %in% stop_words$word)
+
+
+
+t3 <- bi_filt %>%
+
+  unite(trigram, word1, word2, word3, sep = " ")
+
+
+
+t3_tf_idf <- t3 %>%
+
+  count(target, trigram) %>%
+
+  bind_tf_idf(trigram, target, n) %>%
+
+  arrange(desc(tf_idf))
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 32", out.width="100%"}
+
+t3_tf_idf %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(target) %>%
+
+  top_n(10, tf_idf) %>%
+
+  ggplot(aes(reorder(trigram, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive trigrams", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ target, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of Essay 2 for\napproved vs rejected programs - Top trigrams")
+
+```
+
+
+
+### Essay 1 - Sentiments
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 33", out.width="100%"}
+
+set.seed(4242)
+
+t1 <- train %>%
+
+  filter(day >= ymd("20160517")) %>%
+
+  mutate(weight = abs(as.integer(target) - 0.848)) %>%
+
+  sample_n(1e3, weight = weight) %>%
+
+  mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\n", " ")) %>%
+
+  mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\r", " ")) %>%
+
+  unnest_tokens(word, project_essay_1) %>%
+
+  anti_join(stop_words, by = "word") %>%
+
+  select(word, target)
+
+
+
+t1 %>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, target) %>%
+
+  group_by(sentiment, target) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  coord_flip() +
+
+  facet_grid(sentiment ~ target, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  ggtitle("Essay 1 - Sentiment analysis for approval false vs true")
+
+```
+
+
+
+
+
+### Essay 2 - Sentiments
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 34", out.width="100%"}
+
+set.seed(4242)
+
+t1 <- train %>%
+
+  filter(day >= ymd("20160517")) %>%
+
+  mutate(weight = abs(as.integer(target) - 0.848)) %>%
+
+  sample_n(1e3, weight = weight) %>%
+
+  mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\n", " ")) %>%
+
+  mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\r", " ")) %>%
+
+  unnest_tokens(word, project_essay_2) %>%
+
+  anti_join(stop_words, by = "word") %>%
+
+  select(word, target)
+
+
+
+t1 %>%
+
+  inner_join(get_sentiments("bing"), by = "word") %>%
+
+  count(word, sentiment, target) %>%
+
+  group_by(sentiment, target) %>%
+
+  top_n(10, n) %>%
+
+  ungroup() %>%
+
+  mutate(word = reorder(word, n)) %>%
+
+  ggplot(aes(word, n, fill = sentiment)) +
+
+  geom_col(show.legend = FALSE) +
+
+  coord_flip() +
+
+  facet_grid(sentiment ~ target, scales = "free_y") +
+
+  labs(y = "Contribution to negative/positive sentiment", x = NULL) +
+
+  ggtitle("Essay 2 - Sentiment analysis for approval false vs true")
+
+```
+
+
+
+
+
+### Essay 1 - Bigram network
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 35", out.width="100%"}
+
+bigram_graph <- bigram_counts_1 %>%
+
+  filter(n > 120) %>%
+
+  graph_from_data_frame()
+
+
+
+set.seed(1234)
+
+
+
+a <- grid::arrow(type = "closed", length = unit(.1, "inches"))
+
+
+
+ggraph(bigram_graph, layout = "fr") +
+
+  geom_edge_link(aes(edge_alpha = n), show.legend = FALSE,
+
+                 arrow = a, end_cap = circle(.07, 'inches')) +
+
+  geom_node_point(color = "lightblue", size = 3) +
+
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+
+  theme_void() +
+
+  ggtitle("Networks of Bigrams for Essay 1: strong focus on 'students', 'school' & 'learning'")
+
+```
+
+
+
+### Essay 2 - Bigram network
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 36", out.width="100%"}
+
+bigram_graph <- bigram_counts_2 %>%
+
+  filter(n > 120) %>%
+
+  graph_from_data_frame()
+
+
+
+set.seed(1234)
+
+
+
+a <- grid::arrow(type = "closed", length = unit(.1, "inches"))
+
+
+
+ggraph(bigram_graph, layout = "fr") +
+
+  geom_edge_link(aes(edge_alpha = n), show.legend = FALSE,
+
+                 arrow = a, end_cap = circle(.07, 'inches')) +
+
+  geom_node_point(color = "lightblue", size = 3) +
+
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+
+  theme_void() +
+
+  ggtitle("Bigram Networks for Essay 2: emphasis on 'skill' + specific tools")
+
+```
+
+
+
+
+
+
+
+### Interpretation
+
+
+
+- The accepted projects use their *essay 1* to focus on the *children* and on issues such as *substance abuse* or *poor homes*. *Computers* are important, too. The rejected proposals talk about *childhood* as well, in terms of *experiences* or *obesity*. The trigrams are not adding much insight. Maybe the idea that *children receive free* materials or resources helps, whereas the laudable *level playing field* might just be too generic a term. This is mostly speculation, though.
+
+
+
+- In *essay 2* we meet again "Mo Willems" in the accepted group; along with *storage units*, *beanbag chairs*, *boogie boards*, or *music stands*. Interestingly, *math supplies* are the most characteristic in the rejected group. This might be consistent with the focus on literature over mathematics that we saw in the *subject categories* above. Here the trigrams focus on specific tools, like the iPad air 2, and a lot of *reading* and *texts* in the accepted category. The rejected group might contain more generic terms like *classroom learning environment* or *basic life skills*. It is well possible that requesting specific tools gives your proposal better chances.
+
+
+
+- In terms of *sentiments*, there is no strong difference between the approved vs rejected projects. In both essays we have pretty much the same top positive/negative words with very similar scores. There might be a little more positivity in the approved *essays 1 & 2*, but the effect is small.
+
+
+
+- The *bigram networks* give us great insight into how the essays are structured. In *essay 1* ("Describe your students") we see a strong focus on "students", "school", "learning"; and how they are inter-connected. Using the funding to provide free or reduced meals ("breakfast", "lunch") is a big topic. The "background" of the students, "socio-economic" or otherwise, plays a role, too. The networks for *essay 2* ("About your project") preserve the student-centered theme and add a strong focus on "skills", especially "reading", and "learning" (in terms of "environment" and "styles").
+
+
+
+
+
+# Multi-parameter visualisations + Feature Engineering
+
+
+
+Now comes one the most fun parts of the EDA: we will investigate multi-parameter correlations and trends using the rich arsenal of *ggplot2*. Here we will see to which extent the trends in *approval rates* for the invidual parameters might be influenced by other parameters.
+
+
+
+During this analyis, we wll getn ourselves already knee-deep into the important *Feature Engineering* part of the work. Therefore, I decided to change the scope of this chapter and 'officially' address the new features here instead of later in a separate chapter. For some EDAs it works better than for others to separate the initial multi-dimensional correlations from the engineering part. Here, due to the approach we will take in re-categorising existing features, the two parts flow together more naturally.
+
+
+
+*Feature Engineering* has two important functions: 1) to optimise the existing features and to see which ones are important (e.g. through visualisations), and 2) to design new (combined) features with higher predictive power based on the existing ones. It can also play a role in deciding which additional data we need for our project, but we won't cover any external data here.
+
+
+
+
+
+## Space-time
+
+
+
+We looked in detail at the impact of the submission date and US state of origin on the approval rates. Now let's combine the two parameters. First, here are some moving pictures: An animated version of our map from Fig. 1 that looks through each month from April 2016 to April 2017. We are now using a *square root scaling* for the proposal counts, to better see the dynamics in each state. The animation is added in via the `gganimate` package.
+
+
+
+In the code you will notice that it is necessary to add the *facetting variable* (here: year-month as `yearmon`) to all the layers of the plot, including the text overlap that adds the state names.
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 37", out.width="100%"}
+
+proj_state_2 <- train %>%
+
+  mutate(yearmon = str_c(year(day),str_pad(month(day), 2, "left", "0"),sep="-")) %>%
+
+  count(state, yearmon) %>%
+
+  mutate(state = as.character(state)) %>%
+
+  left_join(state2abb, by = "state") %>%
+
+  mutate(region = str_to_lower(region))
+
+
+
+ymon <- proj_state_2 %>%
+
+  rename(name = state) %>%
+
+  distinct(name, yearmon) 
+
+
+
+state_center_2 <- state_center %>%
+
+  left_join(ymon, by = "name")
+
+
+
+p <- us %>%
+
+  left_join(proj_state_2, by = "region") %>%
+
+  ggplot(aes(frame = yearmon, cumulative = FALSE)) + 
+
+  geom_polygon(aes(x = long, y = lat, fill = sqrt(n), group = group), color = "white") +
+
+  geom_text(data=state_center_2, aes(long, lat, label = name), size=9, color = "grey30") +
+
+  coord_fixed(1.3) +
+
+  scale_fill_continuous(low='lightblue', high='darkblue', guide='colorbar') +
+
+  labs(fill = 'Sqrt(n)') +
+
+  theme(axis.text=element_blank(),
+
+        axis.title=element_blank(),
+
+        title=element_text(size=20),
+
+        legend.text = element_text(size=26),
+
+        legend.title = element_text(size=26),
+
+        line = element_blank(),
+
+        rect = element_blank(),
+
+        legend.position = "right") +
+
+  ggtitle("Submitted Proposals per US state in")
+
+
+
+#gganimate(p, interval = 1.0, ani.width = 750, ani.height = 450)
+
+#gganimate(p, "space_time_anim.gif", ani.width = 1300, ani.height = 700)
+
+```
+
+
+
+![Fig. 37](https://thumbs.gfycat.com/SpotlessCreativeCrustacean-size_restricted.gif)
+
+
+
+(Note that we have to employ some trickery of creating the animation externally and including the link to the gif, because `gganimate` currently doesn't work in Kernels.)
+
+
+
+
+
+We find that the dominance of California, Texas, and New York state is obvious throughout the 1-yr coverage. We also recover the strong peak in submission for Aug and Sep 2016, which seems to happen first in the east and then the west (compare MI, IL, WI in Aug with UT in Sep). April really is the quietest month.
+
+
+
+
+
+Let's look at it a bit more qualitatively now. The next plot is a bit daring in the amount of information it will contain; but we'll see how it goes. What we do is that we look that the *approval rates over time*, stepping again month-by-month from April 2016 to April 2017, but this time for every state individually. This results in a large number of facets and we expand the vertical size of the plot to make it happen (see the chunk header in the source of the Kernel).
+
+
+
+To keep the plot informative we only consider approval rates with a total error range of less than 10 percentage points. This is a reasonable approach if we want to see true variability. However, it leads to a number of states being remove completely, because their numbers of submissions don't support this accuracy. Other states have only a few data points. These caveats asides, let's dive into the results:
+
+
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 38", fig.height=8, out.width="100%"}
+
+train %>%
+
+  mutate(yearmon = str_c(str_sub(year(day),3,4),str_pad(month(day), 2, "left", "0"),sep="-")) %>%
+
+  group_by(state, yearmon, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  filter(upr-lwr < 10 & frac < 100) %>%
+
+  ggplot(aes(yearmon, frac, col = state)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 2) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  labs(x = "Year-month", y = "Approval rate [%]") +
+
+  theme(legend.position = "none", axis.text.x = element_text(angle=90, hjust=1, vjust=0.9)) +
+
+  facet_wrap(~ state, ncol = 5)
+
+```
+
+
+
+We find:
+
+
+
+- CA and TX are the states with the best coverage and smallest errors. And they show slightly different behaviour, with acceptance numbers in TX already lower in June, whereas in CA they only really drop in September.
+
+
+
+- Other than TX, the pre-semester drop is seen best in AZ, FL, GA, and OK; while MO, OH, or CT stay relatively stable during this time.
+
+
+
+- The long-term trend aside, throughout the year the acceptance rates (ignoring errors) are predominantly above average in CT, MA, NC, and WA. The counterparts with mostly below-average rates are FL, OK, and TX.
+
+
+
+- We don't even have DE in this plot; which makes its strong performance in Fig. 23 somewhat suspicious. But maybe the monthly binning is too short for such a small state with relatively small numbers of overall submissions. Note, that the above plot is also missing WY and VT (compare Fig. 2)
+
+
+
+
+
+## Teachers and Subjects
+
+
+
+Let's add the information about *teachers* and *project/grade categories* into the mix. We will continue to identify the important features and build gradually more complex plots.
+
+
+
+Here's the breakdown of *grade categories* vs time and space. The top panel emphasises the smoothed trends, with the raw data in the background. We also cut off the spikes at the end of Aug/Sep to focus on the general trend:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 39", out.width="100%"}
+
+p1 <- train %>%
+
+  count(day, cat) %>%
+
+  ggplot(aes(day, n, color = cat)) +
+
+  geom_line(alpha=0.3) +
+
+  geom_smooth(method = "loess", span = 0.3) +
+
+  coord_cartesian(ylim = c(0,500)) +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Date", y = "Submitted Proposals") +
+
+  ggtitle("Proposals per grade over time (top) & vs state (bottom)")
+
+
+
+p2 <- train %>%
+
+  count(state, cat) %>%
+
+  ggplot(aes(state, n, fill = cat)) +
+
+  geom_col(position = "fill") +
+
+  labs(x = "State", y = "Proportion of Projects [%]", fill = "Grades") +
+
+  theme(legend.position = "bottom", axis.text.x  = element_text(angle=60, hjust=1, vjust=0.9))
+
+
+
+layout <- matrix(c(1,2),2,1,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Fig. 5 already gave us the insight that *grades* are more common the earlier they are. Here we see in the bottom panel that for some states the "PreK-2" grades contribute almost 50% of the proposals (we use a filled barplot to focus on the relative proportions). Fig. 26 taught us that *grade* "9-12" projects have smaller approval rates than "PreK-2" and especially "3-5". Therefore, this distribution matters.
+
+
+
+- The time series' are broadly similar. I have the impression that the curves for the younger grades "PreK-2" and "3-5" rise slightly faster and peak slightly earlier than the other two.
+
+
+
+
+
+We will continue to focus on the interaction between *state* and *grade category*. Here we estimate the approval rate for every *state vs grade* combination and show it in a heat map on a colour scale. We then add the *teacher prefix* in a similar heatmap, for which we only consider rates with relatively small counting errors (i.e. larger numbers). The plot uses the `ggplot2` tool `geom_tile`. We also use two slightly different colour-scales to make the plots easier to differentiate:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 40", out.width="100%"}
+
+p1 <- train %>%
+
+  mutate(cat = as.factor(str_c(" ",str_sub(as.character(cat), 8, -1)))) %>%
+
+  mutate(cat = fct_relevel(cat, " PreK-2", "3-5", "6-8", "9-12")) %>%
+
+  group_by(state, cat, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(state, cat, fill = frac)) +
+
+  geom_tile() +
+
+  labs(x = "", y = "Grade Category", fill = "Approval fraction") +
+
+  theme(legend.position = "top", axis.text.x  = element_text(angle=60, hjust=1, vjust=0.9)) +
+
+  scale_fill_distiller(palette = "Spectral") +
+
+  ggtitle("Approval rates for states vs: grades (top) / teacher prefix (bottom)")
+
+
+
+p2 <- train %>%
+
+  filter(teacher_prefix != "Dr.") %>%
+
+  group_by(state, teacher_prefix, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  filter(upr-lwr < 20) %>%
+
+  ggplot(aes(state, teacher_prefix, fill = frac)) +
+
+  geom_tile() +
+
+  labs(x = "State", y = "Teacher Prefix", fill = "Approval fraction") +
+
+  theme(legend.position = "bottom", axis.text.x  = element_text(angle=60, hjust=1, vjust=0.9)) +
+
+  scale_fill_distiller(palette = "RdBu")
+
+
+
+layout <- matrix(c(1,2),2,1,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The overall lower approval rates for *grade* "9-12" projects are clearly visible in the horzontal direction, as are the more stable rates in the *grade* "3-5" group. Vertically, there is most variance in smaller *states* such as "DE" or "RI", which makes sense from a statistical viewpoint. These states also contribute the majority of the extreme values (dark blue/red).
+
+
+
+- In case of the *teacher prefix*, we don't have a large amount of data for the "Teacher" category; and also a few holes where the other categories had too small samples. Here, the extreme values are found for *states* like "KS", "WY", or "NC". "Mrs." seems to be the most stable *teacher prefix*; possibly by virtue of contributing the largest fraction of entries. Other than that I can't see any larger patterns in the data.
+
+
+
+
+
+Is *experience* the factor that separates some of the *teacher prefix* categories? I would expect that after writing several funding proposals, and receiving useful feedback, one becomes better at it. Fig. 26 seems to confirm this idea, so let's see whether other predictor features are influenced by the *number of previous projects*.
+
+
+
+We will use our *number of previous project* categories from Fig. 26 to slice the *approval rates* for each *teacher prefix*. We also plot the relative proportions of *previous projects* for each *teacher prefix*:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 41", out.width="100%"}
+
+bar <- train %>%
+
+  mutate(n = teacher_number_of_previously_posted_projects) %>%
+
+  mutate(props = case_when(
+
+    n == 0 ~ "0",
+
+    n == 1 ~ "1",
+
+    n > 1 & n <= 10 ~ "2-10",
+
+    n > 10 & n <= 100 ~ "10-100",
+
+    n > 100 ~ ">100"
+
+  )) %>%
+
+  mutate(props = fct_relevel(as.factor(props), "0", "1", "2-10", "10-100", ">100"))
+
+  
+
+
+
+p1 <- bar %>%
+
+  filter(teacher_prefix != "Dr.") %>%
+
+  group_by(props, teacher_prefix, target) %>%
+
+  count() %>%
+
+  spread(target, nn, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(teacher_prefix, frac, col = props)) +
+
+  geom_point(size = 1) +
+
+  theme(legend.position = "none") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), size = 1) +
+
+  labs(x = "Teacher Prefix", y = "Approval rate [%]")
+
+
+
+p2 <- bar %>%
+
+  filter(teacher_prefix != "Dr.") %>%
+
+  ggplot(aes(teacher_prefix, fill = props)) +
+
+  geom_bar(position = "fill") +
+
+  labs(x = "Teacher Prefix", y = "Proportion of Proposals", fill = "# Previous\nProposals") +
+
+  theme(legend.position = "left")
+
+
+
+p3 <- bar %>%
+
+  ggplot(aes(state, fill = props)) +
+
+  geom_bar(position = "fill") +
+
+  theme(legend.position = "none", axis.text.x  = element_text(angle=60, hjust=1, vjust=0.9)) +
+
+  labs(x = "State", y = "Proportion of Proposals") +
+
+  ggtitle("Previous Proposals vs Teacher Prefix and US state",
+
+          subtitle = "Improval rates increasing with more previous projects")
+
+
+
+layout <- matrix(c(3,3,1,2),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The stark differences in *approval rates* from Fig. 26 are mirrored in every *teacher prefix*. The overall numbers for the "Teacher" category are too small to draw significant insights. The "Mrs." category has slightly higher approval rates in every *previous proposals* category; even though the individual deviations are mostly consistent within their error bars.
+
+
+
+- The "Teacher" category contains a higher proportion of first-time proposers, compared to the other three categories (we again ignore the few instances of "Dr."). "Mrs." has slightly more experienced proposers than "Ms.", but the difference really is small. Together with the somewhat higher *approval rates*, however, this could explain the significant difference in Fig. 25.
+
+
+
+- The proportions of *previous proposals* per state varies considerably. It is interesting that both "CA" and "NYC" are among the states with the largest proportion of experienced (with respect to funding proposals) teachers.
+
+
+
+
+
+We follow this *experience* theme further by dividing our sample of teachers into 2 distinct groups: those with 0 or 1 previous proposals (low experience) vs those with > 10 previous proposals (high experience). This is again a binning approach designed to increase the signal to noise ratio. Our hypothesis is that the teachers with high experience will be on average more successful in obtaining funding.
+
+
+
+We compare those two categories to our 4 *grade* ranges, and then also investigate their impact on the *binned subject categories* from Fig. 27 ("maths" vs "arts" vs "health" vs "literature"). We look at the overall proportion of experienced teachers in these binned subjects and their average project *approval rates*: 
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 42", out.width="100%"}
+
+foo <- bar %>%
+
+  mutate(exp = case_when(
+
+    props == "0" | props == "1" ~ FALSE,
+
+    props == "10-100" | props == ">100" ~ TRUE
+
+  )) %>%
+
+  filter(!is.na(exp))
+
+
+
+p1 <- foo %>%
+
+  group_by(exp, cat, target) %>%
+
+  count() %>%
+
+  spread(target, nn, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(cat, frac, col = exp)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Grades", y = "Approval rate [%]") +
+
+  ggtitle("Previous Experience over Grades and Subjects",
+
+          subtitle = "Teacher Experience in submitting proposals\n has a significant impact on approval rates")
+
+
+
+foobar <- foo %>%
+
+   mutate(maths = as.integer(str_detect(sub, "Math")),
+
+         literature = as.integer(str_detect(sub, "Lit")),
+
+         arts = as.integer(str_detect(sub, "Art")),
+
+         health = as.integer(str_detect(sub, "Health"))
+
+  ) %>%
+
+  filter(maths+literature+arts+health == 1) %>%
+
+  select(maths, literature, arts, health, target, exp, cat) %>%
+
+  gather(maths, literature, arts, health, key = "sub", value = "cases") %>%
+
+  filter(cases == 1) %>%
+
+  mutate(sub = as.factor(sub))
+
+
+
+p2 <- foobar %>%
+
+  group_by(sub, exp, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(sub, frac, col = exp)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Subject categories", y = "Approval rate [%]")
+
+
+
+p3 <- foobar %>%
+
+  mutate(cat = as.factor(str_sub(as.character(cat), 8, -1))) %>%
+
+  mutate(cat = fct_relevel(cat, "PreK-2", "3-5", "6-8", "9-12")) %>%
+
+  ggplot(aes(cat, fill = exp)) +
+
+  geom_bar(position = "fill") +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Grades", y = "Relative Proportions", fill = "High\nExperience") +
+
+  theme(legend.position = "top") +
+
+  facet_wrap(~ sub, ncol = 1)
+
+  
+
+layout <- matrix(c(1,2,3,3),2,2,byrow=FALSE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Correcting for experience, there is now much less of a difference between the 4 *grade* categories (compare Fig. 26). The *high-experience* data points all have overlapping error bars. There is still a notable difference, however, between *grades* "3-5" and "9-12" in the low-experience range.
+
+
+
+- **High vs low experience thus becomes a new feature designed from the previous\_projects information.**
+
+
+
+- In the facet plot on the right side it becomes clear that *teacher experience* decreases gradually from earlier to later *grades* throughout the different *subject categories*. Interestingly, the effect is weakest in the "literature" subjects, where there are at most a few percentage points difference.
+
+
+
+- This is notable, because even when taking *experience* into account, "literature" projects outperform the other subjects (and especially "maths") significantly in terms of *approval rates* (lower left panel). This is true for the *high experience* teachers as well as for those with little experience, where choosing a "literature" project makes the difference from clearly below average *approval rates* to average ones.
+
+
+
+
+
+The relation between *subject categories* and *grades* might shine more light on the "literature" situation. To this end we use a *count plot* as the equivalent of a 2-dimensional histogram to compare the frequencies. The size of the data points will be proportional to the number of cases. Then we look at the corresponding *approval rates*:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 43", out.width="100%"}
+
+p1 <- foobar %>%
+
+  mutate(cat = as.factor(str_sub(as.character(cat), 8, -1))) %>%
+
+  mutate(cat = fct_relevel(cat, "PreK-2", "3-5", "6-8", "9-12")) %>%
+
+  ggplot(aes(cat, sub)) +
+
+  geom_count(colour = "darkgreen") +
+
+  theme(legend.position = "bottom") +
+
+  labs(x = "Grades", y = "Subject Categories") +
+
+  coord_flip() +
+
+  ggtitle("Grade vs Subject Categories", subtitle = "Literature dominates especially\nin early education")
+
+
+
+p2 <- foobar %>%
+
+  mutate(cat = as.factor(str_sub(as.character(cat), 8, -1))) %>%
+
+  mutate(cat = fct_relevel(cat, "PreK-2", "3-5", "6-8", "9-12")) %>%
+
+  group_by(cat, sub, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  #filter(upr-lwr < 5) %>%
+
+  ggplot(aes(sub, frac, col = cat)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  theme(legend.position = "bottom") +
+
+  labs(x = "Subject categories", y = "Approval rate [%]", color = "Grades")
+
+
+
+layout <- matrix(c(1,2),1,2,byrow=FALSE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Even though the relative proportions of "literature"-focussed projects are similar throughout the *grades*, "literature" is clearly the most popular project focus for the early "PreK-2" education. Building **early literacy** is certainly an important goal.
+
+
+
+- **The simplified and grouped subject\_categories were introduced in Fig. 27 and constitute another new engineered feature.**
+
+
+
+- Note, that a similar focus is not being given to "mathematical literacy" since the "maths" projects peak in volume in *grades* "3-5". One the right-hand side plot, we see that the *approval rates for "maths" projects are actually lowest for the *grades* "PreK-2".
+
+
+
+- Even once the *grades* are taken into account, "literature" still ranks highest in the *approval rates.* For this subject, there is no significant difference between the 4 *grades* categories. Note, that for both "health" there is a significant difference beween *grades* "PreK-2" and "3-5" vs "9-12", with the latter rates being lower. 
+
+
+
+
+
+As a **section summary**, we find that:
+
+
+
+- **early literacy** appears to be a popular funding target together with a general focus on projects involving "literature". 
+
+
+
+- **teacher experience** with writing funding proposals seems to play an important role.
+
+
+
+
+
+## Resources and their link to projects
+
+
+
+Let's pull in the `resources` data now and combine it with what we've learned so far.
+
+
+
+As a first step, we will construct resource *price groups* in a similar way as we grouped the resource *quantities* in Fig. 29. We then compare the approval rates accross both groups:
+
+
+
+```{r}
+
+price <- res %>%
+
+  group_by(id) %>%
+
+  summarise(price = sum(price)) %>%
+
+  ungroup() %>%
+
+  mutate(price = case_when(
+
+    price > 0 & price <= 50  ~ "<50",
+
+    price > 50 & price <= 100  ~ "50-100",
+
+    price > 100 & price <= 200  ~ "100-200",
+
+    price > 200 & price <= 500  ~ "200-500",
+
+    price > 500  ~ ">500"
+
+    )) %>%
+
+  mutate(price = fct_relevel(as.factor(price),
+
+                             "<50", "50-100", "100-200", "200-500", ">500"))
+
+quant <- res %>%
+
+  group_by(id) %>%
+
+  summarise(quant = sum(quantity)) %>%
+
+  ungroup() %>%
+
+  right_join(train, by = "id") %>%
+
+  inner_join(price, by = "id") %>%
+
+  mutate(stock = case_when(
+
+    quant > 0 & quant <= 10  ~ "1-10",
+
+    quant > 10 & quant <= 20  ~ "10-20",
+
+    quant > 20 & quant <= 50  ~ "20-50",
+
+    quant > 50 & quant <= 100  ~ "50-100",
+
+    quant > 100 & quant <= 200  ~ "100-200",
+
+    quant > 200  ~ ">200"
+
+    )) %>%
+
+  mutate(stock = fct_relevel(as.factor(stock),
+
+                             "1-10", "10-20", "20-50", "50-100", "100-200", ">200"))
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 44", out.width="100%"}
+
+p1 <- quant %>%
+
+  ggplot(aes(price, fill = price)) +
+
+  geom_bar() +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Price Group per Project [$]") +
+
+  ggtitle("Price Structure vs Approval Rates", subtitle = "Cheap Projects successful but rare")
+
+
+
+p2 <- quant %>%
+
+  ggplot(aes(price, stock, color = price)) +
+
+  geom_count() +
+
+  theme(legend.position = "none") +
+
+  labs(x = "Price Group per Project [$]", y = "Quantities per Project")
+
+
+
+p3 <- quant %>%
+
+  group_by(price, stock, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  #filter(upr-lwr < 5) %>%
+
+  ggplot(aes(price, frac, col = price)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  theme(legend.position = "none",
+
+        axis.text.x = element_text(angle=45, hjust=1, vjust=0.9),
+
+        title = element_text(size = 10)) +
+
+  labs(x = "Price Group per Project [$]", y = "Approval rate [%]") +
+
+  facet_wrap(~ stock, ncol = 2) +
+
+  ggtitle("Rates per Quantities vs Price")
+
+
+
+layout <- matrix(c(1,2,3,3),2,2,byrow=FALSE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- *Project price tags* of "less than 50 dollars"" are relatively rare. The "100-200" and "200-500" dollar groups are clearly the majority. Interestingly, the count plot shows that these relatively high costs are much more likely to stem from just a few expensive objects ("1-10") rather than many cheaper ones. 
+
+
+
+- **Grouping the price per project into a handful of bins also counts as feature engineering, since we are optimising the signal in this feature by reducing its resolution.**
+
+
+
+- **The approval rates fall with increasing price tag troughout the quantity groups**, which are facetted in the right-hand plot. This effect is stronger for some quantities (e.g. "10-20") than for others ("1-10" is almost entirely above the average). **It shows us that cheaper projects are more likely to be funded.** While this is not a surprising outcome, it contrasts strongly with the overall distribution of *price groups* which is skewed towards price tags of 100 - 500 dollars.
+
+
+
+- As an example, projects that cost "<50" dollars are submitted about as frequently as those that cost ">500" dollars but have much better *approval rates*.
+
+
+
+
+
+Now let's go a step further and combine this *quantity + price* angle with the *subjects vs experience* insight we found in the previous section. For this, we slightly modify our *price grouping* to make up for the smaller object numbers resulting from the additional.
+
+
+
+Get ready for our most comprehensive plot yet. We choose to include all data points, including those with few cases and large error bars. However, we decide to set the lower y-axis limit to 50% approval to preserve distinguishing power for the small variations. This means that some of the error bars will be cut off; but it only affects cases for which the errors are too large anyway. Have a look:
+
+
+
+```{r}
+
+price <- res %>%
+
+  group_by(id) %>%
+
+  summarise(price = sum(price)) %>%
+
+  ungroup() %>%
+
+  mutate(price = case_when(
+
+    price > 0 & price <= 50  ~ "<50",
+
+    price > 50 & price <= 100  ~ "50-100",
+
+    price > 100 & price <= 200  ~ "100-200",
+
+    price > 200 & price <= 500  ~ "200-500",
+
+    price > 500  ~ ">500"
+
+    )) %>%
+
+  mutate(price = fct_relevel(as.factor(price),
+
+                             "<50", "50-100", "100-200", "200-500", ">500"))
+
+quant <- res %>%
+
+  group_by(id) %>%
+
+  summarise(quant = sum(quantity)) %>%
+
+  ungroup() %>%
+
+  right_join(train, by = "id") %>%
+
+  inner_join(price, by = "id") %>%
+
+  mutate(stock = case_when(
+
+    quant > 0 & quant <= 10  ~ "1-10",
+
+    quant > 10 & quant <= 20  ~ "10-20",
+
+    quant > 20 & quant <= 50  ~ "20-50",
+
+    quant > 50 & quant <= 100  ~ "50-100",
+
+    quant > 100  ~ ">100"
+
+    )) %>%
+
+  mutate(stock = fct_relevel(as.factor(stock),
+
+                             "1-10", "10-20", "20-50", "50-100", ">100"))
+
+
+
+exp_sub <- train %>%
+
+  mutate(n = teacher_number_of_previously_posted_projects) %>%
+
+  mutate(props = case_when(
+
+    n == 0 ~ "0",
+
+    n == 1 ~ "1",
+
+    n > 1 & n <= 10 ~ "2-10",
+
+    n > 10 & n <= 100 ~ "10-100",
+
+    n > 100 ~ ">100"
+
+  )) %>%
+
+  mutate(props = fct_relevel(as.factor(props), "0", "1", "2-10", "10-100", ">100")) %>%
+
+  mutate(exp = case_when(
+
+    props == "0" | props == "1" ~ FALSE,
+
+    props == "10-100" | props == ">100" ~ TRUE
+
+  )) %>%
+
+  filter(!is.na(exp)) %>%
+
+   mutate(maths = as.integer(str_detect(sub, "Math")),
+
+         literature = as.integer(str_detect(sub, "Lit")),
+
+         arts = as.integer(str_detect(sub, "Art")),
+
+         health = as.integer(str_detect(sub, "Health"))
+
+  ) %>%
+
+  filter(maths+literature+arts+health == 1) %>%
+
+  select(id, maths, literature, arts, health, exp, cat) %>%
+
+  gather(maths, literature, arts, health, key = "sub", value = "cases") %>%
+
+  filter(cases == 1) %>%
+
+  mutate(sub = as.factor(sub))
+
+
+
+exp_res <- quant %>%
+
+  select(-sub, -cat) %>%
+
+  inner_join(exp_sub, by = "id")
+
+```
+
+
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 44", out.width="100%"}
+
+exp_res %>%
+
+  group_by(price, stock, exp, sub, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  #filter(upr-lwr < 25) %>%
+
+  ggplot(aes(price, frac, col = exp)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  coord_cartesian(ylim = c(50,100)) +
+
+  theme(axis.text.x = element_text(angle=45, hjust=1, vjust=0.9),
+
+        title = element_text(size = 9)) +
+
+  labs(x = "Price Group per Project [$]", y = "Approval rate [%]", color = "High\nExperience") +
+
+  facet_grid(sub ~ stock) +
+
+  ggtitle("Rates (y) per Price (x) vs Quantity (horizontal) vs Subject (vertical) vs Experience (colour)",
+
+          subtitle = "Diverging trends for high vs low experience")
+
+```
+
+
+
+
+
+We find:
+
+
+
+- The drop in *approval rates* with increasing *price tag* is still visible; however now the data is clearly diverging into two branches according to *experience* (measured by the number of previous proposals). Interestingly, for the cheapest projects *experience* makes no significant difference overall, while it seems that more expensive projects are (significantly) easier to sell if you have more experience.
+
+
+
+- This diverging pattern does not exist for every *quantity group* - *subject* combination. The *arts* are generally much less impacted by *experience* than the other three subjects. And although high experience is pretty consistently better, the differences are relatively small in the "1-10" units group.
+
+
+
+- We're starting to lose signal in the "50-100" units group; and the ">100" units group looks overall dominated by noise. The only exception is the "literature" *subject* where errors are relatively small and show no significant difference depending on *price group* or *experience*.
+
+
+
+
+
+In the plot above, we see that we lose the signal for the few cases of higher quantities; so let's swap out the *quantity categories* and bring in the *grade categories* instead:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 45", out.width="100%"}
+
+exp_res %>%
+
+  mutate(cat = as.factor(str_sub(as.character(cat), 8, -1))) %>%
+
+  mutate(cat = fct_relevel(cat, "PreK-2", "3-5", "6-8", "9-12")) %>%
+
+  group_by(price, cat, exp, sub, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  #filter(upr-lwr < 25) %>%
+
+  ggplot(aes(price, frac, col = exp)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  coord_cartesian(ylim = c(50,100)) +
+
+  theme(axis.text.x = element_text(angle=45, hjust=1, vjust=0.9),
+
+        title = element_text(size = 9)) +
+
+  labs(x = "Price Group per Project [$]", y = "Approval rate [%]", color = "High\nExperience") +
+
+  facet_grid(sub ~ cat) +
+
+  ggtitle("Rates (y) per Price (x) vs Grades (horizontal) vs Subject (vertical) vs Experience (colour)",
+
+          subtitle = "Similar trends ")
+
+```
+
+
+
+We find:
+
+
+
+- Uncertainties are smaller now due to a (relatively) larger degree of balance between the groups (compare Fig. 5).
+
+
+
+- There remains a diverging effect in *price tag* vs *experience*, although it matters less for the "arts" than for the other *subjects*.
+
+
+
+- Again, *higher experience* has always an advantage but the significance is low for the less costly projects.
+
+
+
+- The impact of *experience* on *approval rates* is arguably smallest for the "literature" *subjects*. This matters, because "literature" has the lowest percentage of experienced proposers throughout the *grades* (Fig. 42). In contrast, "maths" diverges more strongly between *high vs low experience*; especially for the important early *grades* "PreK-2" and "3-5".
+
+
+
+
+
+Before moving on to the text features, we will tie back these results to the spatial and temporal variations we spotted at the beginning of the chapter. To simplify things, we create a new feature called *summer*, which differentiates the summer months of Jul, Aug, Sep from the rest of the year. Remember, that in Fig. 23 we had seen evidence for lower approval rates during these 3 months.
+
+
+
+Our next figure will split the multi-parameter plot into 2 panels, to emphasise the differences between groups more clearly:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 46", out.width="100%"}
+
+p1 <- exp_res %>%
+
+  mutate(cat = as.factor(str_sub(as.character(cat), 8, -1))) %>%
+
+  mutate(cat = fct_relevel(cat, "PreK-2", "3-5", "6-8", "9-12")) %>%
+
+  mutate(month = month(day, label = TRUE),
+
+         summer = month %in% c("Jul","Aug","Sep")) %>%
+
+  group_by(summer, cat, exp, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(exp, frac, col = summer)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  theme(axis.text.x = element_text(angle=45, hjust=1, vjust=0.9),
+
+        title = element_text(size = 9),
+
+        legend.position = "none") +
+
+  labs(x = "High experience", y = "Approval rate [%]", color = "Summer") +
+
+  facet_wrap(~ cat) +
+
+  ggtitle("Rates (y) vs Experience (x) for Grades/Subjects\nvs Summer Months (colour)",
+
+          subtitle = "Summer shows lower approval rates for early\ngrades & literature/maths")
+
+
+
+p2 <- exp_res %>%
+
+  mutate(cat = as.factor(str_sub(as.character(cat), 8, -1))) %>%
+
+  mutate(cat = fct_relevel(cat, "PreK-2", "3-5", "6-8", "9-12")) %>%
+
+  mutate(month = month(day, label = TRUE),
+
+         summer = month %in% c("Jul","Aug","Sep")) %>%
+
+  group_by(summer, sub, exp, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ggplot(aes(exp, frac, col = summer)) +
+
+  geom_hline(yintercept = 84.8, col = "blue", linetype = 2) +
+
+  geom_point(size = 3) +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr)) +
+
+  theme(axis.text.x = element_text(angle=45, hjust=1, vjust=0.9),
+
+        title = element_text(size = 9),
+
+        legend.position = "top") +
+
+  labs(x = "High experience", y = "Approval rate [%]", color = "Summer") +
+
+  facet_wrap(~ sub)
+
+
+
+layout <- matrix(c(1,2),1,2,byrow=FALSE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Lower approval rates in the summer months are predominantly evident in the *grades* up to "6-8"; whereas for "9-12" is doesn't seem to make a difference. The effect seems to be largely independent of *experience*.
+
+
+
+- In terms of *subject categories* we see a clear difference in behaviour for "arts" & "health" vs "literature" & "maths". The later two experience a drop in approval during summer whereas the other two *subjects* have consistent *approval rates*.
+
+
+
+
+
+And now we will come full circle back to the statistics by US *state*. First, we will visualise how the fraction of *high-experience teachers* changes from state to state. Then we plot how this percentage relates to the approval rates. Those two plots are shown below.
+
+
+
+In the upper panel, we reorder the states by decreasing fraction of high-experience teachers to emphasise the trend. The lower panel includes errorbars in both directions (experience and approval rate) as well as a simple linear fit in the background (black). Each state has a colour and a label which is arranged via the useful `ggrepel` package to ensure that there is very little overlap of labels even in the crowded region. After some deliberation, I decided to only use data points with relatively small uncertainties for this plot:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 47", out.width="100%"}
+
+foo <- exp_res %>%
+
+  group_by(state, exp) %>%
+
+  count() %>%
+
+  spread(exp, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         )
+
+
+
+bar <- train %>%
+
+  group_by(state, target) %>%
+
+  count() %>%
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac_app = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr_app = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr_app = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         )
+
+
+
+p1 <- foo %>%
+
+  ggplot(aes(reorder(state, -frac, FUN = min), frac)) +
+
+  geom_point(col = "blue") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), col = "blue") +
+
+  theme(axis.text.x = element_text(angle=45, hjust=1, vjust=0.9),
+
+        title = element_text(size = 11)) +
+
+  labs(x = "States", y = "High-Experience [%]") +
+
+  ggtitle("High-Experience Teachers [%] vs State (top) vs Approval (bottom)",
+
+          subtitle = "A few states have a large impact")
+
+
+
+p2 <- foo %>%
+
+  inner_join(bar, by = "state") %>%
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(frac, frac_app, col = state)) +
+
+  geom_smooth(method = lm, color = "black") +
+
+  geom_point() +
+
+  geom_errorbarh(aes(xmin = lwr, xmax = upr)) +
+
+  geom_errorbar(aes(ymin = lwr_app, ymax = upr_app)) +
+
+  theme(legend.position = "none") +
+
+  labs(x = "High-Experience Fraction [%]", y = "Approval Rate [%]") +
+
+  geom_label_repel(aes(label = state, alpha = 0.5))
+
+
+
+layout <- matrix(c(1,1,1,2,2,2,2),7,1,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Some states have clearly a higher number of *experienced teachers* (in terms of *number of previous proposals*). Especially NY and CA, which are also among the highest number of submitted projects overall (Fig. 2). In contrast to their 50% experience fraction, TX has only 20%.
+
+
+
+- However, there is only a slight trend between *high teacher experience* and *approval rate* on the *state by state* level; and the correlation is not significant. That does not mean that our previous findings not hold anymore, but it shows that the full picture is complex and that a few states (CA, NY, TX) and their individual performance profile are influencing the overall picture due to their large number of proposals.
+
+
+
+
+
+## Text features by subject and experience
+
+
+
+Knowing the importance of the *subject category* and the *experience* level, we can now study the text features in a more differentiated way. First, here is a TF-IDF of the most characteristic *title* words in both new category features:
+
+
+
+```{r}
+
+exp_sub <- train %>%
+
+  mutate(n = teacher_number_of_previously_posted_projects) %>%
+
+  mutate(props = case_when(
+
+    n == 0 ~ "0",
+
+    n == 1 ~ "1",
+
+    n > 1 & n <= 10 ~ "2-10",
+
+    n > 10 & n <= 100 ~ "10-100",
+
+    n > 100 ~ ">100"
+
+  )) %>%
+
+  mutate(props = fct_relevel(as.factor(props), "0", "1", "2-10", "10-100", ">100")) %>%
+
+  mutate(exp = case_when(
+
+    props == "0" | props == "1" ~ FALSE,
+
+    props == "10-100" | props == ">100" ~ TRUE
+
+  )) %>%
+
+  filter(!is.na(exp)) %>%
+
+   mutate(maths = as.integer(str_detect(sub, "Math")),
+
+         literature = as.integer(str_detect(sub, "Lit")),
+
+         arts = as.integer(str_detect(sub, "Art")),
+
+         health = as.integer(str_detect(sub, "Health"))
+
+  ) %>%
+
+  filter(maths+literature+arts+health == 1) %>%
+
+  select(id, maths, literature, arts, health, exp, cat) %>%
+
+  gather(maths, literature, arts, health, key = "sub", value = "cases") %>%
+
+  filter(cases == 1) %>%
+
+  mutate(sub = as.factor(sub))
+
+
+
+t1 <- train %>%
+
+  mutate(project_title = str_replace_all(project_title, "\\\\n", " ")) %>%
+
+  mutate(project_title = str_replace_all(project_title, "\\\\r", " ")) %>%
+
+  unnest_tokens(word, project_title) %>%
+
+  anti_join(stop_words, by = "word")
+
+
+
+# subjects
+
+frequency <-t1 %>%
+
+  select(word, id) %>%
+
+  inner_join(exp_sub, by = "id") %>%
+
+  count(sub, word)
+
+
+
+tf_idf_sub <- frequency %>%
+
+  bind_tf_idf(word, sub, n)
+
+
+
+# experience
+
+frequency <-t1 %>%
+
+  select(word, id) %>%
+
+  inner_join(exp_sub, by = "id") %>%
+
+  count(exp, word)
+
+
+
+tf_idf_exp <- frequency %>%
+
+  bind_tf_idf(word, exp, n)
+
+```
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 48", out.width="100%"}
+
+tf_idf_sub %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(sub) %>%
+
+  top_n(10, tf_idf) %>%
+
+  ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = sub)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive words", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ sub, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of Titles per Subject Group - Top 10 words")
+
+```
+
+
+
+We find exactly the kind of characteristic words that would be expected for each *subject group*. Notice that "reluctant" is scoring relatively high in the "literature" *subject*, which could aim at overcoming an (initial) aversion to reading.
+
+
+
+
+
+Now we look at the TF-IDF for the teachers with *high vs low experience* (as measured from the number of previous proposals):
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 49", out.width="100%"}
+
+tf_idf_exp %>%
+
+  arrange(desc(tf_idf)) %>%
+
+  group_by(exp) %>%
+
+  top_n(10, tf_idf) %>%
+
+  ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = exp)) +
+
+  geom_col() +
+
+  labs(x = "Distinctive words", y = "TF-IDF value") +
+
+  coord_flip() +
+
+  facet_wrap(~ exp, scales = "free") +
+
+  theme(legend.position = "none") +
+
+  ggtitle("TF-IDF of Titles for high/low Experience - Top 10 words")
+
+```
+
+
+
+We find:
+
+
+
+- This plot is a bit more difficult to interpret. Experienced teachers focus quite a bit on "3doodle", whereas there is a hint that the title language of inexperienced teachers might contain more 'flashy' words such as "gateway" or "rockstars".
+
+
+
+- And of course there is the occurence of "jail" as the most frequent term in the *high experience* group. Not really a word one wants to see in the context of schools and education. However, there are only 18 occurences of "jail" (all from teachers in CA by the way) and they focus on "juvenile jails". Here are two examples:
+
+
+
+
+
+```{r}
+
+train %>%
+
+  select(id, project_title) %>%
+
+  filter(id == "p039638")
+
+
+
+train %>%
+
+  select(id, project_title) %>%
+
+  filter(id == "p181051")
+
+```
+
+
+
+
+
+Thing is: the *project titles* have a limited usefulness. Their succinctness is an advantage but also a drawback, since we don't have a lot of words to base our analysis on. Therefore, we will now look at the *project essays*. Since these contain a bit too much information to keep our Kernel memory friendly we will compute the *high vs low experience* and *approved vs not approved*  TF-IDFs for each of the four *subject groups* individually.
+
+
+
+Whenever you're repeating something like this, with only minimal, systematic changes, then it's time for a function. Functions help you to keep your code compact and easier to maintain. They also protect you from typos; or at the very least makes the typos that inevitably happen easier to fix ;-)
+
+
+
+This code block contains our TF-IDF computing and plotting function with the *subject* being the only variable it takes. We include both *essays* in our analysis and show the top 5 (at least) words:
+
+
+
+```{r}
+
+plot_tfidf_sub_exp <- function(subj){
+
+
+
+  foo <- exp_sub %>%
+
+    filter(sub == subj)
+
+
+
+  #set.seed(4321)
+
+  t1 <- train %>%
+
+    right_join(foo, by = "id") %>%
+
+    #sample_n(5000) %>%
+
+    mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\n", " ")) %>%
+
+    mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\r", " ")) %>%
+
+    unnest_tokens(word, project_essay_1) %>%
+
+    anti_join(stop_words, by = "word")
+
+
+
+  frequency <-t1 %>%
+
+    select(word, id) %>%
+
+    left_join(foo, by = "id") %>%
+
+    count(exp, word)
+
+
+
+  tf_idf_exp <- frequency %>%
+
+    bind_tf_idf(word, exp, n)
+
+
+
+  p1 <- tf_idf_exp %>%
+
+    arrange(desc(tf_idf)) %>%
+
+    group_by(exp) %>%
+
+    top_n(5, tf_idf) %>%
+
+    ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = exp)) +
+
+    geom_col() +
+
+    labs(x = "Distinctive words", y = "TF-IDF value") +
+
+    coord_flip() +
+
+    facet_wrap(~ exp, scales = "free") +
+
+    theme(legend.position = "none") +
+
+    ggtitle(str_c("TF-IDF: high/low Experience - ",
+
+                  str_to_upper(subj),
+
+                  " - Essay 1"))
+
+  
+
+  #set.seed(4321)
+
+  t1 <- train %>%
+
+    right_join(foo, by = "id") %>%
+
+    #sample_n(5000) %>%
+
+    mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\n", " ")) %>%
+
+    mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\r", " ")) %>%
+
+    unnest_tokens(word, project_essay_2) %>%
+
+    anti_join(stop_words, by = "word")
+
+
+
+  frequency <-t1 %>%
+
+    select(word, id) %>%
+
+    left_join(foo, by = "id") %>%
+
+    count(exp, word)
+
+
+
+  tf_idf_exp <- frequency %>%
+
+    bind_tf_idf(word, exp, n)
+
+
+
+  p2 <- tf_idf_exp %>%
+
+    arrange(desc(tf_idf)) %>%
+
+    group_by(exp) %>%
+
+    top_n(5, tf_idf) %>%
+
+    ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = exp)) +
+
+    geom_col() +
+
+    labs(x = "Distinctive words", y = "TF-IDF value") +
+
+    coord_flip() +
+
+    facet_wrap(~ exp, scales = "free") +
+
+    theme(legend.position = "none") +
+
+    ggtitle("Essay 2")
+
+  
+
+  layout <- matrix(c(1,2),2,1,byrow=TRUE)
+
+  multiplot(p1, p2, layout=layout)
+
+  p1 <- 1; p2 <- 1; p3 <- 1
+
+}
+
+
+
+
+
+plot_tfidf_sub_target <- function(subj){
+
+
+
+  foo <- exp_sub %>%
+
+    filter(sub == subj)
+
+
+
+  #set.seed(4321)
+
+  t1 <- train %>%
+
+    right_join(foo, by = "id") %>%
+
+    #sample_n(1e4) %>%
+
+    mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\n", " ")) %>%
+
+    mutate(project_essay_1 = str_replace_all(project_essay_1, "\\\\r", " ")) %>%
+
+    unnest_tokens(word, project_essay_1) %>%
+
+    anti_join(stop_words, by = "word")
+
+
+
+  tf_idf <- t1 %>%
+
+    count(target, word) %>%
+
+    bind_tf_idf(word, target, n)
+
+
+
+  p1 <- tf_idf %>%
+
+    arrange(desc(tf_idf)) %>%
+
+    group_by(target) %>%
+
+    top_n(5, tf_idf) %>%
+
+    ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+    geom_col() +
+
+    labs(x = "Distinctive words", y = "TF-IDF value") +
+
+    coord_flip() +
+
+    facet_wrap(~ target, scales = "free") +
+
+    theme(legend.position = "none") +
+
+    ggtitle(str_c("TF-IDF: Approved? - ",
+
+                  str_to_upper(subj),
+
+                  " - Essay 1"))
+
+  
+
+  #set.seed(4321)
+
+  t1 <- train %>%
+
+    right_join(foo, by = "id") %>%
+
+    #sample_n(1e4) %>%
+
+    mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\n", " ")) %>%
+
+    mutate(project_essay_2 = str_replace_all(project_essay_2, "\\\\r", " ")) %>%
+
+    unnest_tokens(word, project_essay_2) %>%
+
+    anti_join(stop_words, by = "word")
+
+
+
+  tf_idf <- t1 %>%
+
+    count(target, word) %>%
+
+    bind_tf_idf(word, target, n)
+
+
+
+  p2 <- tf_idf %>%
+
+    arrange(desc(tf_idf)) %>%
+
+    group_by(target) %>%
+
+    top_n(5, tf_idf) %>%
+
+    ggplot(aes(reorder(word, tf_idf, FUN = min), tf_idf, fill = target)) +
+
+    geom_col() +
+
+    labs(x = "Distinctive words", y = "TF-IDF value") +
+
+    coord_flip() +
+
+    facet_wrap(~ target, scales = "free") +
+
+    theme(legend.position = "none") +
+
+    ggtitle("Essay 2")
+
+  
+
+
+
+  layout <- matrix(c(1,2),2,1,byrow=TRUE)
+
+  multiplot(p1, p2, layout=layout)
+
+  p1 <- 1; p2 <- 1; p3 <- 1
+
+}
+
+```
+
+
+
+
+
+### Experience - Arts
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 50", out.width="100%"}
+
+plot_tfidf_sub_exp("arts")
+
+```
+
+
+
+### Experience - Health
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 51", out.width="100%"}
+
+plot_tfidf_sub_exp("health")
+
+```
+
+
+
+### Experience - Lterature
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 52", out.width="100%"}
+
+plot_tfidf_sub_exp("literature")
+
+```
+
+
+
+### Experience - Maths
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 53", out.width="100%"}
+
+plot_tfidf_sub_exp("maths")
+
+```
+
+
+
+
+
+### Success - Arts
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 54", out.width="100%"}
+
+plot_tfidf_sub_target("arts")
+
+```
+
+
+
+### Success - Health
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 55", out.width="100%"}
+
+plot_tfidf_sub_target("health")
+
+```
+
+
+
+
+
+### Success - Literature
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 56", out.width="100%"}
+
+plot_tfidf_sub_target("literature")
+
+```
+
+
+
+
+
+### Success - Maths
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 57", out.width="100%"}
+
+plot_tfidf_sub_target("maths")
+
+```
+
+
+
+
+
+## Intermezzo: a point on exclamations
+
+
+
+Before we continue with the 'proper' text analysis tools here's a little thought I had when looking at some of the titles and essays. A number of teachers appear to like the use of exclamation or questions marks to make their main points. Exciting! But useful? I all honesty, as a reviewer I would find an excessive use of punctuation a bit tiresome. There's also the famous Terry Pratchett quote about multiple exclamation marks ... ;-)
+
+
+
+Let's see if our reviewers think similarly and count the occurences of "!" and "?" in titles and essays, and then relate them to the approval rates:
+
+
+
+```{r}
+
+foo <- train %>%
+
+  mutate(excl_title = as.integer(str_count(project_title, "!")),
+
+         excl_essay1 = as.integer(str_count(project_essay_1, "!")),
+
+         excl_essay2 = as.integer(str_count(project_essay_2, "!")),
+
+         ques_title = as.integer(str_count(project_title, "\\?")),
+
+         ques_essay1 = as.integer(str_count(project_essay_1, "\\?")),
+
+         ques_essay2 = as.integer(str_count(project_essay_2, "\\?"))
+
+  )
+
+```
+
+
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 58", out.width="100%"}
+
+p1 <- foo %>%
+
+  group_by(excl_title, target) %>% 
+
+  count() %>% 
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ungroup() %>% 
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(excl_title, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "purple", linetype = 2) +
+
+  geom_point(size = 3, col = "blue") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), col = "blue") +
+
+  labs(x = "Number of Exclamation marks in title", y = "Approval percentage") +
+
+  ggtitle("Project titles: counting '!' and '?'")
+
+
+
+p2 <- foo %>%
+
+  group_by(ques_title, target) %>% 
+
+  count() %>% 
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ungroup() %>% 
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(ques_title, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "purple", linetype = 2) +
+
+  geom_point(size = 3, col = "darkgreen") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), col = "darkgreen") +
+
+  labs(x = "Number of Question marks in title", y = "Approval percentage")
+
+
+
+layout <- matrix(c(1,1,1,2,2),5,1,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Interesting! A single exclamation mark seems to help, compared to no exclamation. There are not many cases with more than one "!" in a single title and the numbers are not very significant. In both features we only consider approval rates with reasonably small uncertainties.
+
+
+
+- Does a similar observation apply to question marks? Apparently it does ;-) .
+
+
+
+
+
+Let's look at the same analysis for the two main *essays*:
+
+
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 59", out.width="100%"}
+
+p1 <- foo %>%
+
+  group_by(excl_essay1, target) %>% 
+
+  count() %>% 
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ungroup() %>% 
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(excl_essay1, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "purple", linetype = 2) +
+
+  geom_point(size = 3, col = "blue") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), col = "blue") +
+
+  labs(x = "Number of Exclamation marks in essay 1", y = "Approval percentage") +
+
+  ggtitle("Essays 1 & 2: counting '!'", subtitle = "Shocking! Rhetorics help with approval?! ;-)")
+
+
+
+p2 <- foo %>%
+
+  group_by(ques_essay1, target) %>% 
+
+  count() %>% 
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ungroup() %>% 
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(ques_essay1, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "purple", linetype = 2) +
+
+  geom_point(size = 3, col = "darkgreen") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), col = "darkgreen") +
+
+  labs(x = "Number of Question marks in essay 1", y = "Approval percentage") +
+
+  ggtitle("Essays 1 & 2: counting '?'")
+
+
+
+p3 <- foo %>%
+
+  group_by(excl_essay2, target) %>% 
+
+  count() %>% 
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ungroup() %>% 
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(excl_essay2, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "purple", linetype = 2) +
+
+  geom_point(size = 3, col = "blue") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), col = "blue") +
+
+  labs(x = "Number of Exclamation marks in essay 2", y = "Approval percentage")
+
+
+
+p4 <- foo %>%
+
+  group_by(ques_essay2, target) %>% 
+
+  count() %>% 
+
+  spread(target, n, fill = 0) %>%
+
+  mutate(frac = `TRUE`/(`TRUE`+`FALSE`)*100,
+
+         lwr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[1]]*100,
+
+         upr = get_binCI(`TRUE`,(`TRUE`+`FALSE`))[[2]]*100
+
+         ) %>%
+
+  ungroup() %>% 
+
+  filter(upr-lwr < 5) %>%
+
+  ggplot(aes(ques_essay2, frac)) +
+
+  geom_hline(yintercept = 84.8, col = "purple", linetype = 2) +
+
+  geom_point(size = 3, col = "darkgreen") +
+
+  geom_errorbar(aes(ymin = lwr, ymax = upr), col = "darkgreen") +
+
+  labs(x = "Number of Question marks in essay 2", y = "Approval percentage")
+
+
+
+layout <- matrix(c(1,1,1,2,2,3,3,3,4,4),5,2,byrow=FALSE)
+
+multiplot(p1, p3, p2, p4, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Using no exclamation marks at all in the *project essays* appears to result in lower approval rates. There is no real difference between 1 and multiple exclamation marks within the associated uncertainties. Note, that the total number of punctuations of course depends also on the length of the essays.
+
+
+
+- In contrast, the significance of the question marks is considerably lower. Only in essay 2 there is a tentative difference in *approval rates* for 0 vs 1 '?', but the 95% confidence ranges almost overlap.
+
+
+
+---
+
+Many thanks for reading this Kernel and for all the feedback in the comments below!
+
+Have fun!

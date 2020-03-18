@@ -1,0 +1,296 @@
+---
+title: "Trends and Predictions in the Republican Primaries"
+output:
+  html_document:
+    toc: true
+---
+
+I am going to focus on the Republican Primary, plot some maps and graphs and see if I can figure out any patterns in how voters chose their candidate based on the demographics of their county. I should update this as more results start pouring in. 
+
+
+## 1. Packages, Demographics and Data Munging:
+
+I will give a brief summary of the data cleaning process: 
+
+- first we read the `primary.csv` and create a data frame `votes` using `dplyr` that gives the Republican winner by county
+
+- second we extract some demographic features from the `county_facts.csv` file 
+
+- third we merge the demographic data with the `votes` dataframe by county and by state.
+
+```{r, message = FALSE, warning = FALSE, code_folding: show}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(grid)
+library(gridExtra)
+library(DT)
+library(GGally)
+library(randomForest)
+
+primary <- read.csv("../input/primary_results.csv", stringsAsFactors = FALSE)
+demographics <- read.csv("../input/county_facts.csv", stringsAsFactors = FALSE)
+
+votes <- primary %>%  #get the winners and the fraction of votes the won
+            filter(party == "Republican") %>% 
+            group_by(state_abbreviation, county) %>% 
+            summarize(winner = candidate[which.max(fraction_votes)],
+                      Vote = max(fraction_votes),
+                      votes = max(votes))
+
+
+demographics %<>%
+    filter(state_abbreviation %in% c("IA", "NV", "SC")) %>% 
+    select(state_abbreviation = state_abbreviation, county = area_name, 
+           income = INC110213, hispanic = RHI725214,
+           white= RHI825214, college = EDU685213, density = POP060210) %>% 
+    mutate(county = gsub(" County", "", county))
+
+# make sure to join by state too since some county names overlap 
+votes <- inner_join(votes, demographics, by = c("state_abbreviation","county"))
+```
+
+Let's take a look at what we've got:
+```{r}
+datatable(votes, class = 'compact')
+
+
+```
+The table above is organized by state and by county. Let's go over the features above really quickly. Remember that these demographics are at the county level.
+
+- `Vote` - the fraction of votes the winning candidate received
+- `income` - median household income
+- `hispanic` - the percentage of the population that is hispanic
+- `white` - the percentage of the population that is non-hispanic white
+-  `college` - the percentage of the population over 25 who has a Bachelor of Arts or higher
+- `density` - the population per square mile 
+
+
+## 2. Plots and Exploration:
+
+### 2.1 Winner by County:
+
+Now we are finally in a position to actually do some analysis. Let's first take a look at what the "average" county looks based on the winner. Only 3 candidates have actually won any counties: Donald Trump, Marco Rubio and Ted Cruz so we'll be focusing on them.
+```{r}
+votes %>% 
+    group_by(winner) %>% 
+    summarize(round(mean(income)), round(mean(white)), 
+              round(mean(college),1),round(mean(density)),round(mean(hispanic),1))%>%      
+    datatable( colnames = c(" ",  "Winner", "Income", "White (non-Hispanic)", "Colege",                           "Density (pop/sq m)", "Hispanic"), class = 'compact', caption = "Average County Demographics by Winner")
+
+```
+
+A few observations between we dig deeper: Rubio's winning counties seem to be more educated and urbanized, Cruz's seem to be more white and rural while Trump's counties are somewhere in the middle.
+Let's take a look at some individual plots to get a better sense of the variance in the voting patters:
+
+Let's look at college attainment levels  vs. percentage of population that is white: 
+```{r}
+ggplotly(qplot(x =  white, y = college, data = votes, 
+               color = winner, size = Vote) +
+            ggtitle("Counties by Winner, Whiteness and Educational Attainment"))
+```
+**If you want to get a better idea of these graphs you can always zoom in to the area of the graph you're interested in. The size of the counties represent by what margin the county was won.**
+
+Using only two variables we've managed to separate the winners rather well: Rubio tends to win the counties that have high college attainment (roughly above 33%) regardless of how white they are. The less educated counties are split: Cruz tends to be successful in very white counties (over %90 percent) while Trump wins counties across the whiteness spectrum. 
+
+The boxplots below also corroborate with the surprising fact that Trump has a broad appeal even in counties with large hispanic and non-white populations. The caveat here of course is that: **many (most?) of the Hispanics that don't like Trump don't vote in the Republican primaries** - so take some of these findings with a grain of salt. On the flipside Cruz has had a hard time winning counties that are not very white and rural which shows his limited appeal. 
+
+The breadth of the candidates appeal can be also be seen in the boxplots below. Here we look at the distribution of winning counties by how white or hispanic the county is.
+
+
+```{r, echo = FALSE}
+
+p1 = ggplot(data = votes, aes(x = winner, y = white, fill = winner)) +
+    geom_boxplot() + coord_flip()
+
+
+p2 = ggplot(data = votes, aes(x = winner, y = hispanic, fill = winner)) +
+    geom_boxplot() + coord_flip()
+
+grid.arrange(p1, p2, ncol  = 1)
+
+
+```
+
+Here is another view of the same ideas but now as a scatterplot:
+
+```{r}
+
+ggplotly(qplot(x =  white, y = hispanic, data = votes, 
+               color = winner, size = Vote) +
+            ggtitle("Counties by Winner, Percentage of Whites and Non-Hispanic Whites"))
+```
+
+And a zoomed in version of the plot above looking at counties that are over 92% white:
+
+```{r}
+ggplotly(qplot(x =  white, y = hispanic, data = votes, 
+               color = winner, size = Vote, xlim = c(92, 98), ylim = c(1,5)))
+```
+
+Let's take a look at other demographics. Below we plot educational attainment versus income. In this plot it is Rubio who differentiates himself - he is winning the counties that are wealthy and educated. Notice also the correlation between these two variables.
+
+```{r}
+
+ggplotly(qplot(x =  income, y = college, data = votes, 
+                 color = winner, size = Vote) +
+             ggtitle("Counties by Income, Educational Attainment colored by Winner"))
+     
+votes$winner <- as.factor(votes$winner)
+
+```
+
+Looking at the densities we see similar patters: Rubio wins the densely populated areas while Cruz is most successful in low density areas. Trump is somewhere in between.
+
+```{r}
+
+ggplot(data = votes, aes(x = winner, y = density, fill = winner)) +
+    geom_boxplot() + coord_flip()
+```
+
+One important aspect we have ignored so far is that different counties have different populations and voter turnouts. To explore this issue a bit let's plot Average income versus Educational Attainment but now **make the dots as big as the number of votes the winner received**:
+```{r}
+
+ggplotly(qplot(x =  income, y = college, data = votes, 
+                 color = winner, size = votes) +
+             ggtitle("Counties by Income, Educational Attainment colored by Winner"))
+         
+```
+We see above that while Cruz wins a lot more counties than Rubio, the latter scores larger victories getting lots of votes in his winning counties.
+
+
+### 2.2. Fraction of Votes by County:
+
+So far we have only looked at the qualitative variable of who won each county. To get a slightly different, perhaps more refined perspective, we will now look at each candidate based on the fraction of votes they obtained in each county and see how these relate to the some of the demographics we have:
+
+**Rubio's Fraction of Votes by county based on income, college, ethnicity and density:**
+```{r, echo = FALSE}
+rubio <- primary %>%
+            filter(candidate == "Marco Rubio")
+
+rubio <- inner_join( rubio, demographics, by = c("state_abbreviation","county"))
+
+rubio$income <- rubio$income/1000
+rubio$fraction_votes <- rubio$fraction_votes *100 #normalize a bit
+
+
+g1 <- qplot(x = income, y = fraction_votes, data = rubio, ylab = "fraction of votes") +
+        geom_smooth(method='lm',formula=y~x)
+
+g2 <- qplot(x = log(college), y = fraction_votes, data = rubio, ylab = "fraction of votes") +
+        geom_smooth(method='lm',formula=y~x)
+
+g3 <- qplot(x = log(101 - white), y = fraction_votes, data = rubio, ylab = "fraction of votes") +
+    geom_smooth(method='lm',formula=y~x)
+
+g4 <- qplot(x = log(density), y = fraction_votes, data = rubio, ylab = "fraction of votes") +
+    geom_smooth(method='lm',formula=y~x)
+
+grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
+```
+
+The results agree with our previous findings.  Rubio tends to get more votes in
+counties that are wealthy, educated and densely populated. Now let's do the same for Trump.
+
+
+**Trump's Fraction of Votes by county based on income, college and ethnicity:**
+
+```{r, echo = FALSE}
+trump <- primary %>%
+            filter(candidate == "Donald Trump")
+
+trump <- inner_join( trump, demographics, by = c("state_abbreviation","county"))
+
+trump$income <- trump$income/1000
+trump$fraction_votes <- trump$fraction_votes *100 #normalize a bit
+
+
+g1 <- qplot(x = income, y = fraction_votes, data = trump, ylab = "fraction of votes") +
+        geom_smooth(method='lm',formula=y~x)
+
+g2 <- qplot(x = log(college), y = fraction_votes, data = trump, ylab = "fraction of votes") +
+        geom_smooth(method='lm',formula=y~x)
+
+g3 <- qplot(x = log(101 - white), y = fraction_votes, data = trump, ylab = "fraction of votes") +
+    geom_smooth(method='lm',formula=y~x)
+
+g4 <- qplot(x = log(hispanic), y = fraction_votes, data = trump, ylab = "fraction of votes") +
+    geom_smooth(method='lm',formula=y~x)
+
+grid.arrange(g1, g2, g3, g4, nrow =2, ncol = 2)
+
+```
+
+```{r, warning =  FALSE}
+cor.test(trump$fraction_votes, trump$hispanic, method = "spearman")
+cor.test(trump$fraction_votes, trump$white, method = "spearman")
+```
+Trump wins more votes in counties that are poor and have few college graduates - this was to be expected. 
+But here comes the twist: he seems to get more of the vote the less white and the more hispanic the county is!
+I was not expecting this at all. Based on this analysis **Trump, a candidate well known for calling Mexican immigrants "criminals and rapists" is outperforming two Latino candidates: Cruz and Rubio in counties with sizable Hispanic populations**. Not only that but he seems to be doing _better_ the more Hispanic the county becomes. Now there are two big caveats. Number one, as mentioned before, is that many of the Hispanics that don’t like Trump don’t vote in the Republican primaries. But there could be an even subtler second reason for these unexpected results. It could be that white non-hispanics living in areas with a large hispanic population are more likely to be receptive to Trump's anti-immigration and, let's face it, xenophobic stance. This could be especially the case among working-class whites who feel they are in direct competition with their Hispanic counterparts. Since we don't have any data on the demographics of the people who actually voted we can't really be sure but it's a plausible hypothesis.
+
+
+## 3. Attempts at some models and predictions:
+
+This is still work in progress but I figured I'd throw some algorithms at the data we have and see if we can predict anything.
+
+The most basic model we can build is a multiple linear regression prediction the fraction of votes: `fraction_votes ~ college+white+hispanic+income+density`. Let's take a look at this model for Trump:
+```{r}
+summary(lm(fraction_votes ~ college+white+hispanic+income+density, data = trump))
+
+```
+
+
+
+and for Rubio:
+```{r}
+summary(lm(fraction_votes ~ college+white+hispanic+income+density, data = rubio))
+```
+
+
+We can also try to predict who will win a county based on demographics. We'll do this using the random forest classification algorithms. `randomForest(winner ~ income + hispanic + white + college + density, data = votes)`. Let's look at the out of bag error of our model based on the number of trees used. This will give us an unbiased estimate of the test error:
+
+```{r}
+set.seed(131)
+model <- randomForest(winner ~ income + hispanic + white + college + density, data = votes)
+
+
+plot(model, ylim = c(0, 0.7))
+```
+
+The main line we care about is the black one which gives the OOB error in general. We see that our model has roughly %70 accuracy - not too shabby for a first model. The blue line represent the error for Cruz, red is Trump and green is Rubio. Rubio's errors are more erratic since we only have a few datapoints for him. 
+
+Can anything be done to improve this model? Perhaps using other demographics features? 
+
+I will make predictions and we'll see how well they fare based as soon as more results are made available.
+
+
+## 4. Conclusions:
+
+It's definitely too early to make any substantial conclusions but here is a summary of the trends in the data.
+
+Rubio is most successful in counties that have:
+
+- high median income
+- high college attainment
+- high density
+
+Cruz is most successful in counties that have:
+
+- a large white population
+- low population density
+- low median income
+
+Trump is most successful in counties that have:
+
+- low median income
+- low college attainment
+- large(er) hispanic population (?!)
+
+The main takeaway however is that based on the data, Donald Trump seems to have a much broader appeal than his two main rivals, at least among Republican primary voters. Whether that would translate into a larger appeal among the general population is hard to gauge. 
+
+This is my first attempt at playing around with election results or any kind of political predictions so any feedback, suggestions, or criticism are more than welcome! 
+
+Thanks for reading!
+
+

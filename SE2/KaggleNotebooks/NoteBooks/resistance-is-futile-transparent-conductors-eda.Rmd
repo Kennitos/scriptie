@@ -1,0 +1,2423 @@
+---
+title: 'Resistance is futile - Transparent Conductors EDA'
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    number_sections: true
+    fig_caption: true
+    toc: true
+    fig_width: 7
+    fig_height: 4.5
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo=TRUE, error=FALSE)
+```
+
+<center><img src="https://3c1703fe8d.site.internapcdn.net/newman/csz/news/800/2015/transparentc.jpg"></center>
+
+
+# Introduction
+
+This is an Exploratory Data Analysis for the [Nomad2018 - Predicting Transparent Conductors](https://www.kaggle.com/c/nomad2018-predict-transparent-conductors) competition with [tidy R](http://tidyverse.org/) and [ggplot2](http://ggplot2.tidyverse.org/).
+
+The aim of this challenge is to predict the physical properties of specific types of [transparent conductors](https://en.wikipedia.org/wiki/Transparent_conducting_film). Essentially, these are high-tech materials that can be designed, pretty much atom by atom, from a large range of different quantities of the chemical elements Aluminium (Al), Galium (Ga), and Indium (In). There are a lot of potential combinations of these elements (with different numbers of atoms and different geometries) and testing (or even simulating) them all is simply too expensive. Data science to the rescue! We are tasked with predicting the "key performance indicators" of each material based on different features. 
+
+There are [two targets](https://www.kaggle.com/c/nomad2018-predict-transparent-conductors/data) we need to predict for each material: the *formation energy* (indicator for its stability) and the *bandgap energy* (indicating its transparency). Those will be continuous variables which makes this a regression problem.
+
+The [data](https://www.kaggle.com/c/nomad2018-predict-transparent-conductors/data) comes in the shape of the familiar two *train* and *test* files (`../input/train.csv` and `../input/test.csv`) together with 1 *geometry* file per id. This is a small data set with only 3k materials which means that even with this many files it does not require a lot of memory. In the *train* and *test* sets each row corresponds to a specific material. Let's get started!
+
+
+# Preparations {.tabset .tabset-fade .tabset-pills}
+
+## Load libraries
+
+We load a range of libraries for general data wrangling and general visualisation together with more specialised tools.
+
+```{r, message = FALSE}
+# general visualisation
+library('ggplot2') # visualisation
+library('scales') # visualisation
+library('grid') # visualisation
+library('gridExtra') # visualisation
+library('RColorBrewer') # visualisation
+library('corrplot') # visualisation
+
+# general data manipulation
+library('dplyr') # data manipulation
+library('readr') # input/output
+library('data.table') # data manipulation
+library('tibble') # data wrangling
+library('tidyr') # data wrangling
+library('stringr') # string manipulation
+library('forcats') # factor manipulation
+
+# specific visualisation
+library('alluvial') # visualisation
+library('ggrepel') # visualisation
+library('ggridges') # visualisation
+library('GGally') # visualisation
+
+# Special vis
+library('plotly')
+
+# parallel
+library('foreach')
+library('doParallel')
+```
+
+
+
+## Helper functions
+
+We use the *multiplot* function, courtesy of [R Cookbooks](http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/) to create multi-panel plots. We also make use of a brief helper function to compute binomial confidence intervals.
+
+
+```{r}
+# Define multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r echo=FALSE}
+# function to extract binomial confidence levels
+get_binCI <- function(x,n) as.list(setNames(binom.test(x,n)$conf.int, c("lwr", "upr")))
+```
+
+## Load data
+
+We use *data.table's* fread function to speed up reading in the data:
+
+```{r echo=FALSE}
+on_kaggle <- 1
+if (on_kaggle == 0){
+  path <- ""
+} else {
+  path <- "../input/"
+}
+```
+
+```{r warning=FALSE, results=FALSE}
+train <- as.tibble(fread(str_c(path,'train.csv')))
+test <- as.tibble(fread(str_c(path,'test.csv')))
+sample_submit <- as.tibble(fread(str_c(path,'sample_submission.csv')))
+```
+
+# Overview: File structure and content {.tabset .tabset-fade .tabset-pills}
+
+To begin we will have an overview of the *train* and *test* data sets using the *summary* and *glimpse* tools.
+
+
+## Training data
+
+```{r}
+summary(train)
+```
+
+```{r}
+glimpse(train)
+```
+
+We find:
+
+- In addition to the *id* column there are 13 features for 2400 observations in the *train* data set.
+
+- There are 4 composition features: The *percent\_atom* for "Al", "Ga", and "In" describe the relative composition of the material, i.e. how much of Aluminium, Galium, and Indium it contains. Those three features all range from 0 to 1.  The *number\_of\_total\_atoms* is pretty self explanatory and ranges from 10 to 80; here we already see that only a few values appear to be taken. Those are all numerical features.
+
+- The remaining (training) features are geometrical ones that describe the multi-atom grid that constitutes the fundamental building block of the material: the *spacegroup* column encodes certain symmetry properties of the grid. The *lattice\_vector* and *lattice\_angle* features describe the spatial dimensions and distortion of the grid (i.e. it could be a 5 x 5 x 10 grid with non-rectangular angles). With exception of the integer *spacegroup* these are floating point variables. The *spacegroup* shows several repeating values and might be better expressed as a factor variable. The *angles* appear mostly to be close to 90 degrees (the median for all 3 of them).
+
+- *formation\_energy\_ev\_atom* and *bandgap\_energy\_ev* are our two target variables. Those are floating point features describing energies measured in the unit [electron volt (eV)](https://en.wikipedia.org/wiki/Electronvolt). We see that they range between zero and about 0.5 (*formation*) or about 5 (*bandgap*), respectively.
+
+
+## Test data
+
+```{r}
+summary(test)
+```
+
+```{r}
+glimpse(test)
+```
+
+The *test* data contains 600 observations (i.e. 20% of the total 3000 materials). All features appear to have similar average properties as in the *training* data, although the relative "Ga" and "In" percentages don't quite reach 100%.
+
+
+## Missing values
+
+Once again, we are pleased to find that there are no missing values
+
+```{r}
+sum(is.na(train))
+sum(is.na(test))
+```
+
+## Reformating features
+
+We turn the *spacegroup* feature into a factor for exploration purposes.
+
+```{r}
+train <- train %>%
+  mutate(spacegroup = as.factor(spacegroup))
+
+test <- test %>%
+  mutate(spacegroup = as.factor(spacegroup))
+```
+
+
+# Individual feature visualisations
+
+
+
+We start with visualising the distributions of each individual feature. This will give us a good idea of the range and shape of our *training* data before we move on to more complex exploration methods. We begin with the *train* data set and then also explore some of the *geometry* data files.
+
+
+
+
+
+## Training data
+
+
+
+Those are the distributions for the two target variables together with the composition features and the *spacegroup*:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 1", out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom)) +
+
+  geom_histogram(bins = 50, fill = "red") +
+
+  scale_x_log10()
+
+
+
+p2 <- train %>%
+
+  filter(bandgap_energy_ev > 0.09) %>%
+
+  ggplot(aes(bandgap_energy_ev)) +
+
+  geom_histogram(bins = 50, fill = "blue") +
+
+  scale_x_log10(breaks = c(0.1,0.5,1,5))
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(number_of_total_atoms, fill = as.factor(number_of_total_atoms))) +
+
+  geom_bar(width = 8) +
+
+  theme(legend.position = "none")
+
+
+
+p4 <- train %>%
+
+  ggplot(aes(spacegroup, fill = spacegroup)) +
+
+  geom_bar() +
+
+  theme(legend.position = "none")
+
+
+
+foo <- train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  select(atom, percent) %>%
+
+  mutate(atom = str_sub(atom, 14, 15)) %>%
+
+  ggplot(aes(percent, atom, fill = atom)) +
+
+  geom_density_ridges()
+
+
+
+p5 <- train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  select(atom, percent) %>%
+
+  mutate(atom = str_sub(atom, 14, 15),
+
+         percent = percent * 100) %>%
+
+  ggplot(aes(percent, fill = atom)) +
+
+  geom_density(alpha = 0.5) +
+
+  theme(legend.position = "bottom") +
+
+  labs(x = "Composition [%]")
+
+
+
+layout <- matrix(c(1,1,1,2,2,2,3,3,4,4,5,5),2,6,byrow=TRUE)
+
+multiplot(p1, p2, p3, p4, p5, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The *formation energies* are largely between 0.01 and 0.5 eV (electron volt). Note the logarithmic x-axis.
+
+
+
+- The *bandgap energies* are in the range of a few eV, with a peak around 1 eV. Values above 5 eV are very rare. In this log-scale plot we have removed a few rare outliers below 0.1 (as low as 0.0001).
+
+
+
+- We plot the distribution of the *total number of atoms* as a barplot, because there are only 6 discrete scenarios: 10, 20, 30, 40, 60, and 80 atoms in a grid cell. 80 atoms is the predominant case. Configurations with 10, 60, and also 20 atoms are rare.
+
+
+
+- In a similar way, the symmetry *spacegroups* only take 6 different values. Here the frequencies are much more similar, ranging from about 350 to almost 500 cases.
+
+
+
+- The *percentage of atoms* from a certain element, i.e. the relative compositions of the conductor, range from 0% to 100% for Al, Ga, and In. Both "Al" and "In" have a notable dip around 10%. "Al" atoms are most common at high percentages.
+
+
+
+
+
+Next we look at the angels and demo..., I mean: angles and lengths of the lattice vectors. Talking about demonic influences, though: there are very few cases where using polar coordinates is justified. Those sinister pie charts are an obvious counterexample. But when we are dealing with angles, as in the case of our lattice structure here, then a polar representation makes sense. Notice also the logarithmic radial axis:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 2", out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(lattice_vector_1_ang)) +
+
+  geom_histogram(bins = 30, fill = "red")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(lattice_vector_2_ang)) +
+
+  geom_histogram(bins = 30, fill = "blue")
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(lattice_vector_3_ang)) +
+
+  geom_histogram(bins = 30, fill = "dark green")
+
+
+
+p4 <- train %>%
+
+  ggplot(aes(lattice_angle_alpha_degree)) +
+
+  geom_histogram(bins = 60, fill = "red") +
+
+  coord_polar() +
+
+  scale_x_continuous(breaks = seq(0, 360, by = 45), limits = c(0, 360)) +
+
+  scale_y_log10()
+
+
+
+p5 <- train %>%
+
+  ggplot(aes(lattice_angle_beta_degree)) +
+
+  geom_histogram(bins = 60, fill = "blue") +
+
+  coord_polar() +
+
+  scale_x_continuous(breaks = seq(0, 360, by = 45), limits = c(0, 360)) +
+
+  scale_y_log10()
+
+
+
+p6 <- train %>%
+
+  ggplot(aes(lattice_angle_gamma_degree)) +
+
+  geom_histogram(bins = 60, fill = "dark green") +
+
+  coord_polar() +
+
+  scale_x_continuous(breaks = seq(0, 360, by = 45), limits = c(0, 360)) +
+
+  scale_y_log10()
+
+
+
+layout <- matrix(c(1,2,3,4,5,6),2,3,byrow=TRUE)
+
+multiplot(p1, p2, p3, p4, p5, p6, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The *lengths* of the lattice vectors, describing the positions of the atoms within the grid cell, are clearly grouped into 3 to 4 different peaks. The second (blue) vectors have a notably smaller maximum of around 10 compared to the 25 of the other 2 directions.
+
+
+
+- Also in the polar plots of the associated vector *angles* we see clear groupings (even in the log scale). Notice how the angles mostly cover a narrow range around 90 degrees. Only the *gamma* angle (for the z-axis of the lattice) has a larger variety of angles.
+
+
+
+
+
+## Geometry files
+
+In addition to the overview features in the *training* data we have also been given the detailed atomic geometry of each material. This is a rather remarkable set of information that should provide us with plenty of opportunities for exploration and feature design. For now, we will visualise two of those geometries to get an idea of what we are working with here. We plot each atom, colour-coded by the chemical element, along the cartesian coordinates of the x,y,z axes of its grid.
+
+The following visualisation are fully interactive 3D plots using the popular `plotly` [package](https://cran.r-project.org/web/packages/plotly/index.html). Feel free to play around and explore the geometry!
+
+We start with one of the easy grids of only 10 atoms:
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 3", out.width="100%"}
+geo <- as.tibble(fread(str_c(path,'train/193/geometry.xyz'), skip = 6)) %>%
+  mutate(atom = as.factor(V5)) %>%
+  rename(x = V2, y = V3, z = V4)
+
+geo %>%
+  plot_ly(x = ~x, y = ~y, z = ~z, color = ~atom) %>%
+  add_markers() %>%
+  layout(title = "Cell geometry id 193")
+```
+
+We find:
+
+- This is a pretty simply geometry, with atoms lined up at the sides and edges of the grid.
+
+- There are no "Ga" atoms here and we see the oxygen (O) that is required in those "sesquioxide" materials.
+
+- It is notable that "Al" and "In" don't occur in the same group.
+
+
+To make it easier to reproduce this kind of plot for other *ids* we write a short helper function:
+
+```{r}
+plot_geo_id <- function(id){
+  id <- as.character(id)
+
+  geo <- as.tibble(fread(str_c(path,'train/',id,'/geometry.xyz'), skip = 6)) %>%
+    mutate(atom = as.factor(V5)) %>%
+    rename(x = V2, y = V3, z = V4)
+
+
+  geo %>%
+    plot_ly(x = ~x, y = ~y, z = ~z, color = ~atom) %>%
+    add_markers() %>%
+    layout(title = str_c('Cell geometry id ', id))
+}
+```
+
+
+
+
+
+And then we use to visualise one of the busier grids with 80 atoms:
+
+```{r  fig.align = 'default', warning = FALSE, fig.cap ="Fig. 4", out.width="100%"}
+plot_geo_id(1234)
+```
+
+
+
+Here things are considerably more interesting and we also have a number of "Ga" atoms added into our conductive recipe. From certain angles we can see nicely how the atoms line up along specific axes.
+
+
+
+
+
+# Feature interactions
+
+
+
+Now let's check out how our features interact. For a nicely numerical data set like this it is very convenient to begin with overview correlations, before diving deeper into the feature space.
+
+
+
+
+
+## Overview plots
+
+
+
+We start with a correlation plot using the `ggcorr` tool from the [`GGally` package](https://cran.r-project.org/web/packages/GGally/index.html).  Stronger correlations have brighter colours in either red (positive correlation) or blue (negative correlation). The closer to white the weaker the correlation. We use Spearman rank coefficients. Our two target features are at the top:
+
+
+
+```{r warning=FALSE, fig.align = 'default', message=FALSE, fig.cap ="Fig. 5", out.width="100%"}
+
+train %>%
+
+  select(-id) %>%
+
+  mutate(spacegroup = as.integer(spacegroup)) %>%
+
+  ggcorr(method = c("pairwise","spearman"), label = FALSE, angle = -0, hjust = 0.2) +
+
+  coord_flip()
+
+```
+
+
+
+We find: 
+
+
+
+- The *bandgap energy* correlates strongly with the percentage of "Al" atoms and anti-correlates with the "In" percentage. This should be useful. It also shows a mild anti-correlation with the *lattice vector* lengths.
+
+
+
+- The *formation energy* shows no similarly strong correlations either way with any feature. The weaker correlations we see need more investigation.
+
+
+
+- Among the other features, we see a strong correlation between the *total number* of atoms and the *vector length* of the 2nd grid axis.
+
+
+
+- Other than that, it's also notable that the *total number* of atoms shows no significant correlation with the *percentage* of either element. In a comparable way, the grid *vector lengths* and *angles* appear relatively uncorrelated.
+
+
+
+
+
+Now we can look at those correlations in more detail in an overview pairplot, also part of the `GGally` package. Here we will have much more detail than in a correlation plot. This makes pairplots a powerful tool, almost a one-stop shop for regression problems, but it also means that we have to be careful not to overload the plot with information. Here we only pick the most interesting variables to 
+
+
+
+The `ggpairs` tool automatically picks the type of visualisation (barplot, histogram, scatterplot) according to the format of the underlying feature. It shows scatter plots for the different feature combinations plus the distribution of each feature on the diagonal. In addition, we have the correlation coefficients above the diagonal. Here we also rename the rather verbose feature names to make them fit into the facet headers:
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.align = 'default', fig.cap ="Fig. 6", fig.height=5.5, out.width="100%"}
+
+train %>%
+
+  select(-id, -spacegroup, -lattice_angle_beta_degree, -lattice_angle_gamma_degree,
+
+         -lattice_vector_2_ang, -lattice_vector_3_ang, -percent_atom_ga) %>%
+
+  rename(total_atoms = number_of_total_atoms,
+
+         freq_al = percent_atom_al,
+
+         freq_in = percent_atom_in,
+
+         vector1 = lattice_vector_1_ang,
+
+         alpha = lattice_angle_alpha_degree,
+
+         formation = formation_energy_ev_natom,
+
+         gap = bandgap_energy_ev
+
+         ) %>%
+
+  ggpairs()
+
+```
+
+
+
+We find:
+
+
+
+- There's a nice trend of increasing *bandgap energies* with increasing "Al" and decreasing "In" content. This provides more detail on the correlation plot and shows the potential of exploring these relations further.
+
+
+
+- *alpha* angles other than 90 degrees only occur for 40 *total atoms* and vector *lengths* around 10. Those geometry constraints could become useful in reducing the variance of a model.
+
+
+
+- "Al" and "In" atoms together can of course never make up more than 100%.
+
+
+
+- There might be slight trends in *bandgap energy* within groups of vectors of similar *length*.
+
+
+
+- Finally, the *bandgap energy* and *formation energy* themselves appear to be somewhat related.
+
+
+
+Lots of interesting angles to explore here. Let's see what else we find.
+
+
+
+
+
+## Bandgap energies
+
+
+
+Lets's look at the *bandgap\_energy\_ev* feature first, because it has the strong correlations with other variables. The results might give us ideas that we can also use for the *formation energies*. As before, we group the composition features and the *spacegroups* into one layout:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 7", fig.height=5.5, out.width="100%"}
+
+p1 <- train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  mutate(atom = as.factor(str_sub(atom, 14, 15)),
+
+         percent = percent * 100) %>%
+
+  ggplot(aes(bandgap_energy_ev, percent, color = atom)) +
+
+  geom_jitter() +
+
+  geom_smooth(method = "loess", color = "black", span = 1) +
+
+  facet_wrap(~atom) +
+
+  theme(legend.position = "none")
+
+
+
+p2 <- train %>%
+
+  mutate(total_atoms = as.factor(number_of_total_atoms)) %>%
+
+  ggplot(aes(total_atoms, bandgap_energy_ev, color = total_atoms)) +
+
+  geom_boxplot() +
+
+  theme(legend.position = "none")
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(spacegroup, bandgap_energy_ev, color = spacegroup)) +
+
+  geom_boxplot() +
+
+  theme(legend.position = "none")
+
+
+
+layout <- matrix(c(1,1,2,3),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- There are definitely clear trends between the "Al" and "In" percentages and the *bandgap energy*. Here we use jitter plots to distinguish overlapping scatter points. The black lines are Loess smoothers with large smoothing spans. The smoothed relationship with the aluminium fraction is almost linear; although there is of course considerable variance. The indium dependence is even more impressive, with practically no *bandgap energies* above 2 having more than 50% "In".
+
+
+
+- For "Ga" there is an interesting quadratic relationship; with high *percentages* contributing predominantly to *bandgap energies* around 2 eV. However, this could mainly be due to galium having to replace both "Al" and "In" with are similarly far away from their maxima and low and high *bandgap energies*, respectively.
+
+
+
+- The medians of the *bandgap energies* show somewhat of a variation with the *total number of atoms*, but the boxes (just about) still overlap. The most interesting contrast is between 30 and 40 atoms.
+
+
+
+- There could be a bit of a trend towards lower *bandgap energies* for higher-value *spacegroups*, but it could also just be random variation. The odd one out is group 167.
+
+
+
+
+
+The *vector lengths* reveal an interesting pattern:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 8", out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(bandgap_energy_ev,lattice_vector_1_ang)) +
+
+  geom_point(color = "red") +
+
+  ggtitle("Vector lengths")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(bandgap_energy_ev,lattice_vector_2_ang)) +
+
+  geom_point(color = "blue")
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(bandgap_energy_ev,lattice_vector_3_ang)) +
+
+  geom_point(color = "dark green")
+
+
+
+layout <- matrix(c(1,2,3),1,3,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- As suspected, there are clear trends in *bandgap energy* within groups of lattice vectors of a certain *length*. Several of these groups overlap in their *vector length* distribution, for instance the top two groups in the (blue) vector 2. However, if we manage to isolate these groups through (an)other feature(s) then they would become pretty good predictors.
+
+
+
+
+
+And the *vector angles* have surprising potential:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 9", out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(bandgap_energy_ev, lattice_angle_alpha_degree)) +
+
+  geom_point(color = "red") +
+
+  ggtitle("Vector angles")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(bandgap_energy_ev, lattice_angle_beta_degree)) +
+
+  geom_point(color = "blue")
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(bandgap_energy_ev, lattice_angle_gamma_degree)) +
+
+  geom_point(color = "dark green")
+
+
+
+layout <- matrix(c(1,2,3),1,3,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Interesting. For *alpha* and *beta* we can probably forget about the 90-degree angles. Everything else, however, looks more useful. Especially the region between 90 and 100 deg which shows a pretty linear trend. The little 'island' above `beta = 100` could be helpful, too.
+
+
+
+- For the *gamma* angles we have three very distinct groups with useful limits: The smallest angles, around 40 deg, only has *bandgaps* below 4 eV. The 90-deg angles, in turn, only start their *bandgap energies* above around 0.5 eV.
+
+
+
+- In both cases there is certainly a case for a more detailed analysis of tailored bins of angles in the feature engineering context.
+
+
+
+
+
+## Formation energies
+
+
+
+The *formation\_energy\_ev\_natom* target feature has fewer obvious correlations in the overview plots. But since the previous section on *bandgap energies* has shown us that interesting effects can be hidden in the details, let's go ahead and produce similar plots for the *formation energies*. We might find further insights.
+
+
+
+For our "composition features" layout we swap the boxplots for *ridgeline plots* (via [ggridges](https://cran.r-project.org/web/packages/ggridges/)) because we can. And also because seeing the density of the distribution gives us additional information. You normally don't see flipped ridgeline plots and you can decide for yourself whether that is a good thing or not:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 10", fig.height=5.5, out.width="100%"}
+
+p1 <- train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  mutate(atom = as.factor(str_sub(atom, 14, 15)),
+
+         percent = percent * 100) %>%
+
+  ggplot(aes(formation_energy_ev_natom, percent, color = atom)) +
+
+  geom_jitter() +
+
+  geom_smooth(method = "loess", color = "black", span = 1) +
+
+  facet_wrap(~atom) +
+
+  theme(legend.position = "none")
+
+
+
+p2 <- train %>%
+
+  mutate(total_atoms = as.factor(number_of_total_atoms)) %>%
+
+  ggplot(aes(formation_energy_ev_natom, total_atoms, fill = total_atoms)) +
+
+  geom_density_ridges() +
+
+  theme(legend.position = "none") +
+
+  coord_flip()
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom, spacegroup, fill = spacegroup)) +
+
+  geom_density_ridges() +
+
+  theme(legend.position = "none") +
+
+  coord_flip()
+
+
+
+layout <- matrix(c(1,1,2,3),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The smoothing fits might point to some underlying structure in the *atomic composition* features; although the scatter is considerable. Specifically "Ga" shows a clear declining trend with increasing *formation energy*. And "In" has some rather strange clustering features at low *formation energies*. The smoothing curves at high energies are only based on a few data points, as reflected in the larger (grey) uncertainty margins.
+
+
+
+- Both ridgeline panels show how much interesting structure is hidden in the feature-dependent densities. Several distributions are bimodal, especially for 10 and 20 *total atoms*. But also three of the *spacegroup* densities are double-peaked.
+
+
+
+
+
+We put the *vector lengths* and *angles* scatter plots into one layout to provide a more compact view:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 11", fig.height=5.5, out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom,lattice_vector_1_ang)) +
+
+  geom_point(color = "red") +
+
+  ggtitle("Vector lengths")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom,lattice_vector_2_ang)) +
+
+  geom_point(color = "blue")
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom,lattice_vector_3_ang)) +
+
+  geom_point(color = "dark green")
+
+
+
+p4 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom, lattice_angle_alpha_degree)) +
+
+  geom_point(color = "red") +
+
+  ggtitle("Vector angles")
+
+
+
+p5 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom, lattice_angle_beta_degree)) +
+
+  geom_point(color = "blue")
+
+
+
+p6 <- train %>%
+
+  ggplot(aes(formation_energy_ev_natom, lattice_angle_gamma_degree)) +
+
+  geom_point(color = "dark green")
+
+
+
+layout <- matrix(c(1,2,3,4,5,6),2,3,byrow=TRUE)
+
+multiplot(p1, p2, p3, p4, p5, p6, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Once more there's lots of interesting sub-structure and stratifications. The *vector 2 lengths* show a bow-shaped feature at large values. The *beta angles* display a linear trend in *formation energy* above 100 deg. The *vector 3 length* and *gamma* angle have the most clean separations into several subgroups.
+
+
+
+- To emphasise again: binning these lattice vector geometries into groups will most certainly result in a better understanding and cleaner predictor features.
+
+
+
+
+
+## Multi-feature view
+
+
+
+One more thing on the target features: a multi-parameter layout for both *bandgap energy* and *formation energy*, separately, vs atomic composition fraction (i.e. percentages of "Al", "Ga", "In"; columns) and *spacegroup* (rows) in a facet grid with colour-coded numbers of atoms:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 12", fig.height=6.5, out.width="100%"}
+
+p1 <- train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  mutate(atom = as.factor(str_sub(atom, 14, 15)),
+
+         percent = percent * 100) %>%
+
+  ggplot(aes(bandgap_energy_ev, percent, color = as.factor(number_of_total_atoms))) +
+
+  geom_jitter() +
+
+  #geom_smooth(method = "loess", color = "black", span = 1) +
+
+  facet_grid(spacegroup~atom) +
+
+  theme(legend.position = "right") +
+
+  labs(color = "# atoms")
+
+
+
+p2 <- train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  mutate(atom = as.factor(str_sub(atom, 14, 15)),
+
+         percent = percent * 100) %>%
+
+  ggplot(aes(formation_energy_ev_natom, percent, color = as.factor(number_of_total_atoms))) +
+
+  geom_jitter() +
+
+  #geom_smooth(method = "loess", color = "black", span = 1) +
+
+  facet_grid(spacegroup~atom) +
+
+  theme(legend.position = "none")
+
+
+
+layout <- matrix(c(1,2),2,1,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- These visuals nicely show the impact that the different *spacegroups* have on the *energy* vs *atomic composition* scatter plots. Some shifts are subtle, others are pretty obvious, and a few facets show scatter shapes that are clearly different from the rest: most prominently `spacegroup == 206` for the *formation energies*.
+
+
+
+- We also see that certain *spacegroups* almost exclusively contain certain number of atoms; e.g. 80 for groups 194 and 206. These relations are something that we will explore in the following section on inter-dependencies of our training features.
+
+
+
+
+
+## Predictor features relations
+
+
+
+Here we will have a closer look at how our non-target features relate to one another, independent of the target features. This is useful for discovering clusters and correlations that might influence our interpretation of the target relations.
+
+
+
+We start with an overview of the *total atom numbers* vs the *spacegroups*. We use a countplot to to visualise the frequencies for the various combinations (shown by the size of the dots) and then repeat the density overlay of the atomic compositions (from Fig. 1) for the same combinations:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 13", out.width="100%"}
+
+p1 <- train %>%
+
+  mutate(number_of_total_atoms = as.factor(number_of_total_atoms)) %>%
+
+  mutate(spacegroup = fct_relevel(spacegroup, c("227", "206", "194", "167", "33", "12"))) %>%
+
+  ggplot(aes(number_of_total_atoms, spacegroup)) +
+
+  geom_count(colour = "blue") +
+
+  theme(legend.position = "bottom")
+
+
+
+p2 <- train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  #select(atom, percent) %>%
+
+  mutate(atom = str_sub(atom, 14, 15),
+
+         percent = percent * 100) %>%
+
+  ggplot(aes(percent, fill = atom)) +
+
+  geom_density(alpha = 0.5) +
+
+  theme(legend.position = "bottom") +
+
+  labs(x = "Composition [%]") +
+
+  facet_grid(spacegroup ~ number_of_total_atoms, switch = "x")
+
+
+
+layout <- matrix(c(1,2),1,2,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Only a few of the possible combinations between *total atoms* and *spacegroup* actually exist in our data. 10, 20, 30, and 60 atoms have only a single *spacegroup* each, whereas 40 atoms can be found in *spacegroups* 33 and 227, and 80 atoms (the most frequent case) can be in 4 different *spacegroups* with approximately equal frequency.
+
+
+
+- We note that 80 is a multiple of 10, 20, and 40 with which it shares a *spacegroup*. In the same way, 30 and 60 atoms share a *spacegroup*, too. But then all other numbers are a multiple of 10, so the symmetry rules are probably a bit more complicated.
+
+
+
+- The atomic compositions (i.e. the "Al", "Ga", "In" frequencies) have quite diverse distributions; most prominently in `spacegroup == 227 & number_of_total_atoms == 40` but also between other combinations.
+
+
+
+
+
+Seeing how closely connected the *spacegroups* are to the *number of atoms* we now focus on the latter to study the relations to the geometry parameters. Here we plot the *lattice vector length* distributions from Fig. 2 in *number of atoms* facets. Note the logarithmic y-axes:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 14", out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(lattice_vector_1_ang)) +
+
+  geom_histogram(fill = "red", bins = 30) +
+
+  scale_y_log10() +
+
+  facet_wrap(~number_of_total_atoms, nrow = 1) +
+
+  ggtitle("Lattice vector length distributions for different numbers of atoms")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(lattice_vector_2_ang)) +
+
+  geom_histogram(fill = "blue", bins = 30) +
+
+  scale_y_log10() +
+
+  facet_wrap(~number_of_total_atoms, nrow = 1)
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(lattice_vector_3_ang)) +
+
+  geom_histogram(fill = "dark green", bins = 30) +
+
+  scale_y_log10() +
+
+  facet_wrap(~number_of_total_atoms, nrow = 1)
+
+
+
+layout <- matrix(c(1,2,3),3,1,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- In the majority of cases different *numbers of atoms* correspond to specific narrow *vector lengths ranges*. The exceptions are the cases of 40 and 80 atoms, which in the figure above also have more than one *spacegroup*.
+
+
+
+- We see that increasing *numbers of atoms* require increasing *vector lengths*. This is plausible, since those vectors define the lattice grid and a larger number of atoms needs a larger grid to fit them all in.
+
+
+
+
+
+Before going into the details of the *spacegroup* vs *number of atoms* vs *vector length* relation, let's have a look at the angles first:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 15", out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(lattice_angle_alpha_degree)) +
+
+  geom_histogram(fill = "red", bins = 30) +
+
+  scale_y_log10() +
+
+  facet_wrap(~number_of_total_atoms, nrow = 1) +
+
+  ggtitle("Lattice angle distributions for different numbers of atoms")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(lattice_angle_beta_degree)) +
+
+  geom_histogram(fill = "blue", bins = 30) +
+
+  scale_y_log10() +
+
+  facet_wrap(~number_of_total_atoms, nrow = 1)
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(lattice_angle_gamma_degree)) +
+
+  geom_histogram(fill = "dark green", bins = 30) +
+
+  scale_y_log10() +
+
+  facet_wrap(~number_of_total_atoms, nrow = 1)
+
+
+
+layout <- matrix(c(1,2,3),3,1,byrow=TRUE)
+
+multiplot(p1, p2, p3, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Those facets nicely deconstruct the *vector angle* distributions from Fig. 2 into at least some of their components. Note again the logarithmic y-axes. The clearly most significant variation is seen for 40 atoms in the "alpha" and "beta" *lattice angles*.
+
+
+
+- Several groups of *numbers of atoms* are only associated to (approximately) a single angle. This angle is always 90 deg for the "alpha" and "beta" angles and takes 3 roughly distinct values of 30, 90, and 120 in the "gamma" angle:
+
+
+
+```{r}
+
+train %>% count(round(lattice_angle_gamma_degree))
+
+```
+
+
+
+
+
+We can look in more detail at those *vector lengths* and *angles* that showed interesting distributions in the plots above. Here we plot the multi-modal distributions of *length* for *numbers of atoms* 40 and 80, and colour-coded by *spacegroup*. In addition, we dissect by *spacegroup* the broad *vector angle* distributions in the "alpha" and "beta" angles for 40 atoms:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 16", out.width="100%"}
+
+p1 <- train %>%
+
+  filter(number_of_total_atoms == 40 | number_of_total_atoms == 80) %>%
+
+  gather(lattice_vector_1_ang, lattice_vector_2_ang, lattice_vector_3_ang, key = "vector", value = "length") %>%
+
+  mutate(vector = str_sub(vector,9,16)) %>%
+
+  ggplot(aes(length, fill = spacegroup)) +
+
+  geom_histogram(bins = 30) +
+
+  facet_grid(vector~number_of_total_atoms) +
+
+  ggtitle("Length vs #atoms vs vector vs spacegroup")
+
+
+
+p2 <- train %>%
+
+  filter(number_of_total_atoms == 40) %>%
+
+  gather(lattice_angle_alpha_degree, lattice_angle_beta_degree, lattice_angle_gamma_degree,
+
+         key = "vector", value = "angle") %>%
+
+  mutate(vector = str_sub(vector,15,19)) %>%
+
+  filter(vector != "gamma") %>%
+
+  ggplot(aes(angle)) +
+
+  geom_histogram(bins = 30, fill = "turquoise") +
+
+  facet_grid(vector~spacegroup, scales = "free") +
+
+  ggtitle("Angles for 40 atoms vs angle vs spacegroup")
+
+  
+
+layout <- matrix(c(1,2),1,2,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- In some cases, the *spacegroups* are separated (i.e. the lower left facets), but more often than not there is a mix of *spacegroups* at the distinct ranges of *vector length*. For 80 atoms it's typically *spacegroups* "33" and "206" that occur together.
+
+
+
+- The *angle* distributions show a characteristic behaviour in which *spacegroup* "227" contributes most of the peak around 90 degrees, whereas the histogram for "33" is much flatter.
+
+
+
+
+
+## Impact on target features
+
+
+
+Using all these insight we can now go back to the plots of *vector length* vs *bandgap energy* / *formation energy* in Fig. 8 and 11 and deconstruct them by *spacegroup* and *number of atoms*. In order to do that, we define a new categorical feature from simply combining the latter two features. This is a useful step for EDA since we reduce the number of 6 x 6 combinations to those 10 that actually exist (compare Fig. 13). However, for modelling purposes it is probably better to treat both features independently. Especially since the *number of atoms* is an intrinsically ordered integer feature. See also the [discussion topic](https://www.kaggle.com/c/nomad2018-predict-transparent-conductors/discussion/46126) started by [kzhoulatte](https://www.kaggle.com/kzhoulatte).
+
+
+
+Those are the colour-coded *bandgap energy* vs *vector length* scatter plots. Note the free y-axes for each facet:
+
+
+
+```{r  message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 17", out.width="100%"}
+
+train %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  gather(lattice_vector_1_ang, lattice_vector_2_ang, lattice_vector_3_ang, key = "vector", value = "length") %>%
+
+  mutate(vector = str_sub(vector,9,16)) %>%
+
+  ggplot(aes(bandgap_energy_ev, length, color = space_plus_num)) +
+
+  geom_point() +
+
+  theme(legend.position = "bottom") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(nrow = 2, keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_wrap(~ vector, scales = "free") +
+
+  labs(color = "Spacegroup_number-of-atoms") +
+
+  ggtitle("Bandgap energy vs vector length for color spacegroup_atoms")
+
+```
+
+
+
+We find:
+
+
+
+- For the most cases we can clearly separate the sub-groups in the plot. This highlights the importance of the *vector* length for a given *spacegroup* and *number of atoms*.
+
+
+
+- Those combinations that overlap have often the same *spacegroup*, e.g. "33\_40" and "33\_80" or "12\_20" and "12\_80".
+
+
+
+- It is interesting to see how the same groups, like the bright orange "227\_40", can be found at different regions of the (relative) *length* range; sometimes even split into two groups. Combination "12\_80" (dark blue) has the longest "1" vectors but is among the shortest "3" vectors.
+
+
+
+
+
+And here are the *vector length* vs *formation energy* plots in the same colours:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 18", out.width="100%"}
+
+train %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  gather(lattice_vector_1_ang, lattice_vector_2_ang, lattice_vector_3_ang, key = "vector", value = "length") %>%
+
+  mutate(vector = str_sub(vector,9,16)) %>%
+
+  ggplot(aes(formation_energy_ev_natom, length, color = space_plus_num)) +
+
+  geom_point() +
+
+  theme(legend.position = "bottom") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(nrow = 2, keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_wrap(~ vector, scales = "free") +
+
+  labs(color = "Spacegroup_number-of-atoms") +
+
+  ggtitle("Formation energy vs vector length for color spacegroup_atoms")
+
+```
+
+
+
+We find:
+
+
+
+- The separations aren't always as clear as for the *bandgap energies* but nonetheless pretty well visible. The scatter is larger here.
+
+
+
+- It is interesting how the arc-shape of the "206\_80" and "33\_80" groups at the top range of vector 2 relate to the smooth decline in the *bandgap energies* plot.
+
+
+
+
+
+Using these new *spacegroup\_number-of-atoms* categories we can also have a closer look at the relation between the two target variables *bandgap energy* and *formation energy* via a facet plot:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 19", out.width="100%"}
+
+train %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  ggplot(aes(formation_energy_ev_natom, bandgap_energy_ev, color = space_plus_num)) +
+
+  geom_point() +
+
+  theme(legend.position = "none") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_wrap(~space_plus_num) +
+
+  ggtitle("Formation vs bandgap energy vs spacegroup_number-of-atoms (facet + colour)")
+
+```
+
+
+
+We find:
+
+
+
+- The shapes of the scatter clouds are considerably different depending on the *spacegroup* and *number of atoms*. We see that the *spacegroup* is the main influence: there are similar relations for e.g. "33\_40" and "33\_80" (bottom), "167\_30" and "167\_60", or "12\_20" and "12\_80" (top).
+
+
+
+- Within the *spacegroups*, different *number of atoms* appear to create secondary structures such as the "hole" in "33\_40" compared to "33\_80". Note, that in turn "33\_80" also has a small area without data points at parameter values where we can see data points in "33\_40".
+
+
+
+- In general, it is noteworthy that most scatter clouds show small regions without data points that are surrounded by data points. This suggests another clustering variable in addition to the ones we have already separated here.
+
+
+
+
+
+## Chemical composition: Al, In, (Ga)
+
+
+
+We now turn our attention to the composition of the material in terms of the percentages of" "Al", "Ga", and "In" it contains. Combined, those percentages always add up to 100%, as shown here for the first 100 *ids* in our training set:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.height=3.5, fig.cap ="Fig. 20", out.width="100%"}
+
+train %>%
+
+  gather(percent_atom_al, percent_atom_ga, percent_atom_in, key = "atom", value = "percent") %>%
+
+  mutate(atom = as.factor(str_sub(atom, 14, 15)),
+
+         percent = percent * 100) %>%
+
+  filter(id < 100) %>%
+
+  ggplot(aes(id, percent, fill = atom)) +
+
+  geom_area()
+
+```
+
+
+
+In fact, they alway add up to 100% for up to 3 significant digits:
+
+
+
+```{r}
+
+train %>%
+
+  mutate(percent_combine = round(percent_atom_al + percent_atom_ga + percent_atom_in, 4)*100) %>%
+
+  count(percent_combine)
+
+```
+
+
+
+Naturally, this means that one of the three features among *percent\_atom\_al*, *percent\_atom\_ga*, and *percent\_atom\_in* is redundant since it is completely determined by the other two. In this section, we will ignore the "Ga" percentages, since those did show less of clear trend with *bandgap energy* in Fig. 7.
+
+
+
+
+
+First, we plot the "Al" vs "In" percentages against each other (in a 2d-bin plot) as well as against a few example *vector lengths* and *angles*. The colours refer to Fig. 2:
+
+
+
+```{r  message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 21", out.width="100%"}
+
+p1 <- train %>%
+
+  ggplot(aes(percent_atom_al, percent_atom_in)) +
+
+  geom_bin2d(bins = c(10,10)) +
+
+  ggtitle("Al vs In percentages - 10% bins")
+
+
+
+p2 <- train %>%
+
+  ggplot(aes(percent_atom_al, lattice_vector_1_ang)) +
+
+  geom_point(color = "red")
+
+
+
+p3 <- train %>%
+
+  ggplot(aes(percent_atom_in, lattice_vector_2_ang)) +
+
+  geom_point(color = "blue")
+
+
+
+p4 <-train %>%
+
+  ggplot(aes(percent_atom_al, lattice_angle_alpha_degree)) +
+
+  geom_point(color = "red")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- Of course the percentages of "Al" and "In" together can still not exceed 100%. They can be lower, though, and in the 2d-bin plot we see that the single most frequent bin is at Al 40% - 50% and In 0% - 10%. In fact Al 40% - 50% is a quite frequent occurence overall.
+
+
+
+- There are nicely linear trends for *vector lengths* to increase or decrease with growing "Al" or "In" percentage. This could well account for a good portion of the remaining variance we see in Fig. 17.
+
+
+
+- The relationship with the vector angles appears to be more complicated; showing different sub-structures. Still, it might be worth investigating this further.
+
+
+
+
+
+We will now bin our percentages into 20% ranges. This is already pretty much a feature-engineering step. More of that will follow soon.
+
+
+
+```{r}
+
+foo <- train %>%
+
+  mutate(al_bins = cut(percent_atom_al, breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.),
+
+                       labels = c("Al10%", "Al30%", "Al50%", "Al70%", "Al90%"),
+
+                       include.lowest = TRUE)) %>%
+
+  mutate(in_bins = cut(percent_atom_in, breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.),
+
+                       labels = c("In10%", "In30%", "In50%", "In70%", "In90%"),
+
+                       include.lowest = TRUE))
+
+```
+
+
+
+
+
+Then we will plot the relative fractions of these *composition bins* in the *spacegroup* and *atom numbers* categories:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 22", out.width="100%"}
+
+p1 <- foo %>%
+
+  ggplot(aes(spacegroup, fill = al_bins)) +
+
+  geom_bar(position = "fill")
+
+
+
+p2 <- foo %>%
+
+  ggplot(aes(spacegroup, fill = in_bins)) +
+
+  geom_bar(position = "fill")
+
+
+
+p3 <- foo %>%
+
+  ggplot(aes(as.factor(number_of_total_atoms), fill = al_bins)) +
+
+  geom_bar(position = "fill")
+
+
+
+p4 <- foo %>%
+
+  ggplot(aes(as.factor(number_of_total_atoms), fill = in_bins)) +
+
+  geom_bar(position = "fill")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- There is no clear trend of systematic changes in "Al" or "In" percentage distributions with *spacegroup*. "Al" appears to be on average more frequent in all *spacegroups*, with the "In10%" bin including larger fractions of cases.
+
+
+
+- As the *total number of atoms* increase we also don't see obvious consistent trends in element contributions. From 20 atoms onward, "In" percentages might become more frequent, but the variations in the highest-percentage bins look pretty random. Again, rare "Al" bins are typically less frequent than rare "In" bins. 
+
+
+
+
+
+Now we will relate those *element percentage bins* to the *vector lengths* and target variables. We do this by modifying the plots from the previous section with additional dimensions.
+
+
+
+We start with the *bandgap energy* and its relation to the *vector lengths* and *spacegroups* (compare Fig. 17). Here we only plot the lowest (10%) vs highest (90%) *percentage bins* to keep the plots readable and showcase the largest contrasts. First for aluminium ("Al"):
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 23", out.width="100%"}
+
+foo %>%
+
+  filter(al_bins %in% c("Al10%", "Al90%")) %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  gather(lattice_vector_1_ang, lattice_vector_2_ang, lattice_vector_3_ang, key = "vector", value = "length") %>%
+
+  mutate(vector = str_sub(vector,9,16)) %>%
+
+  ggplot(aes(bandgap_energy_ev, length, color = space_plus_num)) +
+
+  geom_point() +
+
+  theme(legend.position = "right") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(ncol = 1, keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_grid(al_bins ~ vector) +
+
+  labs(color = "Space_#atoms") +
+
+  ggtitle("Bandgap vs vector length vs vector vs Al% vs spacegroup_number-atoms (colour)")
+
+```
+
+
+
+We find:
+
+
+
+- As suggested by Fig. 21, we see clearly how the "Al" percentages separate the low- and high-bandgap regions for all the different *spacegroup\_number-of-atoms* strata. The 10% Al group has systematically lower *bandgap energies* than the 90% Al group. The overlaps are minimal, sometimes non-existent.
+
+
+
+
+
+This is the same plot for the "In" percentages:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 24", out.width="100%"}
+
+foo %>%
+
+  filter(in_bins %in% c("In10%", "In90%")) %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  gather(lattice_vector_1_ang, lattice_vector_2_ang, lattice_vector_3_ang, key = "vector", value = "length") %>%
+
+  mutate(vector = str_sub(vector,9,16)) %>%
+
+  ggplot(aes(bandgap_energy_ev, length, color = space_plus_num)) +
+
+  geom_point() +
+
+  theme(legend.position = "right") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(ncol = 1, keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_grid(in_bins ~ vector) +
+
+  labs(color = "Space_#atoms") +
+
+  ggtitle("Bandgap vs vector length vs vector vs In% vs spacegroup_number-atoms (colour)")
+
+```
+
+
+
+We find:
+
+
+
+- Here the separation is even more impressive, with the "In90%" bins only accounting for a small part of the entire scatter cloud. 
+
+
+
+- Unsurprisingly, the trend is the opposite of the "Al" correlation and we see narrow *bandgaps* for large "In" percentages (compare Fig. 7).
+
+
+
+
+
+We can produce the same style of plots for the *formation energies* (see Fig. 18):
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 25", out.width="100%"}
+
+foo %>%
+
+  filter(al_bins %in% c("Al10%", "Al90%")) %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  gather(lattice_vector_1_ang, lattice_vector_2_ang, lattice_vector_3_ang, key = "vector", value = "length") %>%
+
+  mutate(vector = str_sub(vector,9,16)) %>%
+
+  ggplot(aes(formation_energy_ev_natom, length, color = space_plus_num)) +
+
+  geom_point() +
+
+  theme(legend.position = "right") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(ncol = 1, keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_grid(al_bins ~ vector, scales = "free_y") +
+
+  labs(color = "Space_#atoms") +
+
+  ggtitle("Formation vs vector length vs vector vs Al% vs spacegroup_number-atoms (colour) ")
+
+```
+
+
+
+We find:
+
+
+
+- The "Al" percentage bins tend to be primarily associated with shorter *vector lengths*, not so much with a separation along the *formation energy* axis.
+
+
+
+- A few *spacegroups*, however, show a more limited range of *formation energy* for 90% than for 10% composition (e.g. the red "194\_80" at the top of the "vector 3" facets).
+
+
+
+
+
+What about the "In" percentages?
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 26", out.width="100%"}
+
+foo %>%
+
+  filter(in_bins %in% c("In10%", "In90%")) %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  gather(lattice_vector_1_ang, lattice_vector_2_ang, lattice_vector_3_ang, key = "vector", value = "length") %>%
+
+  mutate(vector = str_sub(vector,9,16)) %>%
+
+  ggplot(aes(formation_energy_ev_natom, length, color = space_plus_num)) +
+
+  geom_point() +
+
+  theme(legend.position = "right") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(ncol = 1, keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_grid(in_bins ~ vector, scales = "free_y") +
+
+  labs(color = "Space_#atoms") +
+
+  ggtitle("Formation vs vector length vs vector vs In% vs spacegroup_number-atoms (colour) ")
+
+```
+
+
+
+Here we see a bit more separation in the *formation energies*, but the overlaps are still pretty large.
+
+
+
+
+
+Finally, we investigate the impact of the *chemical composition* on the interaction between our two target features *bandgap energy* and *formation energy*. To make the next plot more efficient, we take again the approach to combine two categorical features into a single exploratory feature: the "Al%" and "In%" bins become "Al%_In%". This makes sense because the parameter space for the "Al%" bins vs "In%" bins is half full (I'm an optimist). Thus, here we only include those combinations that actually exist:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 27", out.width="100%"}
+
+foo %>%
+
+  unite(al_plus_in, al_bins, in_bins) %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  ggplot(aes(formation_energy_ev_natom, bandgap_energy_ev, color = al_plus_in)) +
+
+  geom_point() +
+
+  theme(legend.position = "right") +
+
+  #scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_wrap(~space_plus_num) +
+
+  ggtitle("Formation vs bandgap vs spacegroup_#atoms (facet) vs composition (colour)")
+
+```
+
+
+
+We find:
+
+
+
+- The experiment is clearly successful as we separate the scatter clouds from Fig. 19 into their constituent parts. The separation is particularly clean for "206\_80" where the different colours have very little overlap.
+
+
+
+- In general, the materials with high "Al" content have the largest *bandgap energies* for comparable *formation energies*.
+
+
+
+- Depending on the *spacegroup* plus *number of atoms* combination, the different chemical compositions occupy different parts of the parameter space. A certain overlap remains, but combinations like "206\_80" vs "227\_40" can largely be distinguished based on these plots. Here we show the corresponding *spacegroup* separation for the example of two different chemical compositions:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 28", out.width="100%"}
+
+foo %>%
+
+  unite(al_plus_in, al_bins, in_bins) %>%
+
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+
+  filter(al_plus_in %in% c("Al10%_In70%","Al70%_In30%")) %>%
+
+  ggplot(aes(formation_energy_ev_natom, bandgap_energy_ev, color = space_plus_num)) +
+
+  geom_point(size = 4) +
+
+  theme(legend.position = "right") +
+
+  scale_color_brewer(type = "qual", palette = "Paired") +
+
+  guides(color = guide_legend(keywidth = 1, keyheight = 1,
+
+                              override.aes = list(size = 5))) +
+
+  facet_wrap(~al_plus_in, scales = "free") +
+
+  ggtitle("Formation vs bandgap vs composition (facet) vs spacegroup_#atoms (colour)")
+
+```
+
+
+
+The relative positions of the different combinations are once more primarily determined by their *spacegroups*. Some *spacegroups*, such as "33" or "167", occupy well-constrained areas in the parameter space of our two targets. Note the free axis scales.
+
+
+
+
+
+# Feature engineering
+
+
+
+After exploring the original features let's create a few new ones. The idea here is that we derive new variables by combining and slicing the information we have been given. We are aiming to find features that give us a good separation of the target variables and can be used as powerful predictors.
+
+
+
+As in my other kernels, I prefer to collect the computation of the new features at the beginning of this section. Thereby, we have those features all in one place and can keep better track of what we have done to create them. Occasionally, we might even be able to save computing time, e.g. by using a temporary data frame as the starting point to design two different features or by creating several features within a loop.
+
+
+
+Let's start this section with the *geometry files*, which appear to have the most potential to contain new features due to their relatively unique content and format (compared to the *train* data set).
+
+
+
+Since each *id* is associated to a different file we have little choice but to loop through all of them. We have already shown how to access those files, and the atom coordinates, when we produced the interactive 3d plots. Here we execute this read access in a loop for all 2400 *ids* and then extract new features within that loop.
+
+
+
+2400 is not a large number, but feature design might become rather complex. Therefore, we take this opportunity to demonstrate a *parallel loop* via the `foreach` package. Each loop is independent from the others, making the code pretty straightforward. It only requires to `register` the number of parallel cores and then the `%dopar%` command of the `foreach` package takes care of the rest. Here is the corresponding code block:
+
+
+
+```{r}
+
+registerDoParallel(cores=3)
+
+
+
+geo <- foreach(i=1:nrow(train), .combine=rbind) %dopar% {
+
+
+
+  # extract geometry file
+
+  foo <- as.tibble(fread(str_c(path,'train/',i,'/geometry.xyz'), skip = 6)) %>%
+
+    mutate(atom = as.factor(V5)) %>%
+
+    rename(x = V2, y = V3, z = V4)
+
+  
+
+  # count atoms
+
+  foo1 <- foo %>%
+
+    count(atom) %>%
+
+    mutate(id = i)
+
+
+
+  # compute distances between atoms of same element
+
+  #------------------------
+
+  bar2 <- foo %>%
+
+    count(atom) %>%
+
+    filter(atom != "O" & n > 1)
+
+
+
+  foo2 <- foreach(j=1:nrow(bar2), .combine=rbind) %do% {
+
+    dmat <- foo %>%
+
+      filter(atom == bar2$atom[j]) %>%
+
+      select(x,y,z) %>%
+
+      dist()
+
+  
+
+    dist_out <- tibble(
+
+      atom = bar2$atom[j],
+
+      med_dist = median(dmat),
+
+      mean_dist = mean(dmat),
+
+      min_dist = min(dmat),
+
+      max_dist = max(dmat)
+
+    )
+
+  }
+
+  #------------------------
+
+  
+
+  foo1 %>%
+
+    full_join(foo2, by = "atom")
+
+
+
+}
+
+
+
+train_geo <- train %>%
+
+  left_join(geo, by = "id")
+
+```
+
+
+
+
+
+## Absolute number of Al/Ga/In atoms
+
+
+
+We start by simply counting the number of "Al", "Ga", and "In" atoms in the unit cell of the respective material. Remember that the *percentages* in the *train* file don't take into account the oxygen ("O") atoms which are, however, included in the *total number of atoms*. Therefore, we cannot simply take the "Al" *percentage* of the total atoms to compute the number of "Al" atoms. Instead, those numbers are extracted in the geometry file loop.
+
+
+
+First, we run a quick consistency check by subtracting our derived "Al", "Ga", "In", and also "O" counts from the total numbers of atoms:
+
+
+
+```{r}
+
+train_geo %>%
+
+  spread(atom, n) %>%
+
+  group_by(id) %>%
+
+  summarise(test = mean(number_of_total_atoms) - sum(Al, na.rm = TRUE) - sum(Ga, na.rm = TRUE) -
+
+            sum(In, na.rm = TRUE) - sum(O, na.rm = TRUE)) %>%
+
+  count(test)
+
+```
+
+
+
+We find that all is well consistent and every material adds up perfectly.
+
+
+
+Now we plot the target feature scatter plots for the "Al", "Ga", and "In" numbers to see whether the percentages in Figures 7 and 10 might be obscuring certain signals:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 29", out.width="100%"}
+
+p1 <- train_geo %>%
+
+  filter(atom != "O") %>%
+
+  ggplot(aes(bandgap_energy_ev, n, color = atom)) +
+
+  geom_point() +
+
+  facet_wrap(~atom) +
+
+  theme(legend.position = "none") +
+
+  labs(y = "Number of atoms")
+
+
+
+p2 <- train_geo %>%
+
+  filter(atom != "O") %>%
+
+  ggplot(aes(formation_energy_ev_natom, n, color = atom)) +
+
+  geom_point() +
+
+  facet_wrap(~atom) +
+
+  theme(legend.position = "none") +
+
+  labs(y = "Number of atoms")
+
+
+
+layout <- matrix(c(1,2),2,1,byrow=TRUE)
+
+multiplot(p1, p2, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- In terms of *bandgap energies* we see a greater extent of stratification in the *atom numbers* for "Al" than in the *percentages*. This might be useful.
+
+
+
+- Also relative to the *formation energies* there is more structure in these plots here than the ones above. For both target features the two other atoms, "Ga" and "In", show very little differences between *absolute numbers* and *percentages*.
+
+
+
+
+
+## Atom distances
+
+
+
+The next feature dives into the structure of the cristal. Here we compute the *euclidean distance* between atoms of the **same chemical element**. Then we extract the minimum, maximum, mean, and median values per element per material. We use the base `R` tool `dist` for a quick and efficient distance estimate. All of this happens in the feature engineering loop. The idea is that the new features might provide sufficiently informative first-order descriptions of the cell geometry that we can leverage as target predictors. Let's test this hypothesis.
+
+
+
+Here we plot the density distributions of the derived features, colour-coded by the different elements:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 29", out.width="100%"}
+
+p1 <- train_geo %>%
+
+  filter(!is.na(med_dist)) %>%
+
+  ggplot(aes(med_dist, fill = atom)) +
+
+  geom_density(alpha=0.5) +
+
+  theme(legend.position = "none")
+
+
+
+p2 <- train_geo %>%
+
+  filter(!is.na(mean_dist)) %>%
+
+  ggplot(aes(mean_dist, fill = atom)) +
+
+  geom_density(alpha=0.5) +
+
+  theme(legend.position = "none")
+
+
+
+p3 <- train_geo %>%
+
+  filter(!is.na(min_dist)) %>%
+
+  ggplot(aes(min_dist, fill = atom)) +
+
+  geom_density(alpha=0.5) +
+
+  scale_x_log10()
+
+
+
+p4 <- train_geo %>%
+
+  filter(!is.na(max_dist)) %>%
+
+  ggplot(aes(max_dist, fill = atom)) +
+
+  geom_density(alpha=0.5) +
+
+  theme(legend.position = "none")
+
+
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, p4, layout=layout)
+
+p1 <- 1; p2 <- 1; p3 <- 1; p4 <- 1; p5 <- 1; p6 <- 1
+
+```
+
+
+
+We find:
+
+
+
+- The distributions are very similar. "Al" has sharper peaks in the bimodal *maximum distance* distance distribution and some other peaks are ever so slightly shifted.
+
+
+
+- In all of the other three distance metrics the shorter distances are usually associated with "Al" and the longer ones with "In".
+
+
+
+
+
+Now we plot the most promising *max* and *mean* feature densities colour-coded by *spacegroup*. This is a stacked density and those curves don't overlap but lie on top of each other:
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 30", out.width="100%"}
+
+train_geo %>%
+
+  filter(mean_dist < 14) %>%
+
+  gather(med_dist, mean_dist, min_dist, max_dist, key = "measure", value = "dist") %>%
+
+  filter(!is.na(dist)) %>%
+
+  filter(measure %in% c("mean_dist", "max_dist")) %>%
+
+  ggplot(aes(dist, fill = spacegroup)) +
+
+  geom_density(position = "stack") +
+
+  theme(legend.position = "bottom") +
+
+  guides(fill = guide_legend(nrow = 1)) +
+
+  facet_wrap(~measure, scales = "free")
+
+```
+
+
+
+We find:
+
+
+
+- The *spacegroups* "12" and "194" stand out at large *mean* and *max* distances. For the *max* distances `spacegroup == 194` is particularly distinctive.
+
+
+
+- *spacegroups* "206" and "33" have probably the most prominent peaks at medium distances.
+
+
+
+
+
+Let's analyse those distributions relative to the chemical compositions defined by the "Al" plus "In" percentages. The following facet plot shows the stratifications by *max distance*:
+
+
+
+
+
+```{r}
+
+foo <- train_geo %>%
+
+  mutate(al_bins = cut(percent_atom_al, breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.),
+
+                       labels = c("Al10%", "Al30%", "Al50%", "Al70%", "Al90%"),
+
+                       include.lowest = TRUE)) %>%
+
+  mutate(in_bins = cut(percent_atom_in, breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1.),
+
+                       labels = c("In10%", "In30%", "In50%", "In70%", "In90%"),
+
+                       include.lowest = TRUE))
+
+```
+
+
+
+
+
+```{r message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 31", out.width="100%"}
+foo %>%
+  filter(!is.na(mean_dist)) %>%
+  unite(al_plus_in, al_bins, in_bins) %>%
+  unite(space_plus_num, spacegroup, number_of_total_atoms) %>%
+  mutate(space_plus_num = as.factor(space_plus_num)) %>%
+  ggplot(aes(bandgap_energy_ev, max_dist, color = al_plus_in)) +
+  geom_point() +
+  theme(legend.position = "right") +
+  #scale_color_brewer(type = "qual", palette = "Paired") +
+  guides(color = guide_legend(keywidth = 1, keyheight = 1,
+                              override.aes = list(size = 5))) +
+  facet_wrap(~space_plus_num) +
+  ggtitle("Bandgap vs max_dist vs spacegroup_#atoms (facet) vs composition (colour)")
+```
+
+We find:
+
+- There is a similar structure as for the *vector lengths*, e.g. in Fig. 8 above. The trend is not as strong, but we still see a tendency for wider *bandgaps* to have shorter *maximum distances* within a group.
+
+- Some *spacegroups* - *atom numbers* combinations show larger gaps between the *max dist* strata: especially "194\_80" and "12\_80".
+
+
+---
+
+Many thanks for reading this EDA! Have fun!

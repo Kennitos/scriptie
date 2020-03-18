@@ -1,0 +1,544 @@
+---
+title: "Text mining the Clinton and Trump election Tweets"
+author: "Erik Bruin"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 4
+    code_folding: hide
+    theme: cosmo
+    highlight: tango
+---
+
+```{r}
+on_kaggle <- 1
+
+if (on_kaggle == 0){
+  path <- "" #load local copy of dataset
+    } else {
+  path <- "../input/" #access dataset on Kaggle
+    }
+```
+
+#Executive summary
+
+This is my first kernel on text mining. I wanted to mine 'real' social media data, and chose the dataset that contains all Tweets in which Hillary Clinton and/or Donald Trump were involved during the 2016 US presidential election campaigns. After a brief overall data exploration , I quickly moved on to mining the Tweet texts themselves.
+
+After some initial text cleaning with `dplyr`, I created vcorpus objects with the `tm` package and used cleaning functions from this package to further clean the text (such as removing stopwords). Using a TermsFrequencyMatrix, I created plots of the most used words by both Clinton and Trump, and also added `wordclouds` for both candidates. Besides basic wordclouds of most used words, I also added a `comparison cloud` which plots the difference in word usage by both candidates.
+
+As I also wanted to see what the `tidytext` package (part of tidyverse) has to offer with regards to text mining, I converted the corpus objects into tidy dataframes. Using tidytext, I created bigrams (most used 2-words combinations) for both candidates, and also did sentiment analysis using 3 different lexicons. Using the `bing` lexicon, I created plots of the most used positive and negative words. In addition, I did a time series sentiment analysis based on both the `bing` and `AFINN` lexicons. Furthermore, I used the `nrc` lexicon to also see what (basic) emotions were used the most.
+
+#Introduction
+
+In order to practise my text mining skills I have chosen the [Hillary Clinton and Donald Trump Tweets](https://www.kaggle.com/benhamner/clinton-trump-tweets/home) dataset, which was uploaded by Ben Hamner. Ben describes this dataset as follows:
+
+> Twitter has played an increasingly prominent role in the 2016 US Presidential Election. Debates have raged and candidates have risen and fallen based on tweets. This dataset provides ~3000 recent tweets from Hillary Clinton and Donald Trump, the two major-party presidential nominees.
+
+The dataset contains Tweets posted between January 2016 and the end of September 2016.
+
+#Loading the data
+
+##Loading libraries and reading the data{.tabset .tabset-fade .tabset-pills}
+
+###Libraries
+
+```{r, message=FALSE, warning=FALSE}
+library(knitr)
+library(tidyr)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tibble)
+library(stringr)
+library(gridExtra)
+library(scales)
+library(lubridate)
+library(ggrepel)
+library(reshape2)
+library(kableExtra)
+library(tm)
+library(wordcloud)
+library(tidytext)
+library(broom)
+library(topicmodels)
+```
+
+###Data
+
+```{r}
+#Note: encoding was added as I had an issue with this on my laptop (not on Kaggle)
+tweets <- as_tibble(data.table::fread(str_c(path, "tweets.csv"), encoding= "UTF-8"))
+```
+
+##Data size and structure of dataset
+
+The dataset consists of 6,444 tweets, and contains 28 variables. It is important to realize that:
+
+* Hillary Clinton or Donald Trump are involved in all those tweets (variable handle)
+* If "original_author" is left blank, then the original_author is the handler (Clinton or Trump)
+* If the "original_author" is not blank, this means that Trump or Clinton have just retweeted. The text in those observations are the original tweets, and not the retweets from Trump or Clinton.
+    
+For instance, this tweet "Couldn't be more proud of @HillaryClinton. Her vision and command during last night's debate showed that she's ready to be our next @POTUS." was clearly written by Barack Obama and is not the retweet text by Hillary Clinton. The "original_author" of this tweet is POTUS. POTUS stand for President Of The United States, and at that time POTUS was Barack Obama. It might be fun to read this article of the Washington Post: [What happens to the POTUS Twitter account now?](https://www.washingtonpost.com/news/the-intersect/wp/2017/01/20/so-what-happens-to-the-potus-twitter-account-now/?utm_term=.62ee6aa64cd8)
+    
+```{r}
+tweets$time <- ymd_hms(tweets$time)
+glimpse(tweets)
+```
+
+#Exploratory Data Analysis (EDA)
+
+##Do Clinton or Trump also tweet in Languages other than English?
+
+Some tweets are in languages other than English.
+
+```{r}
+kable(tweets %>% group_by(lang) %>% count() %>% rename(Language = lang, 'Number of Tweets' = n))
+```
+
+----
+
+The "Undefined" ones are generally very short tweets, and I assume that they were too short for Twitter to detect the language. The tweets other than English, Spanish or Undefined seem labeled wrongly (a total of 9 Tweets). 
+
+The Spanish tweets are actually in Spanish. However, Clinton or Trump may have retweeted in English on a tweet that was originally in Spanish. A quick analysis tells me that Hillary Clinton has tweeted herself in Spanish several times, and below you can see a few of those.
+
+```{r}
+kable(head(tweets %>% filter(lang=="es" & original_author=="") %>% select(lang, is_retweet, handle, text) %>% rename(Language = lang),5), format="html")%>%
+        kable_styling() %>%
+        column_spec(1, bold = T, width = "2cm", border_right = T) %>%
+        column_spec(2, bold = T, width = "2cm", border_right = T) %>%
+        column_spec(3, bold = T, width = "2cm", border_right = T) %>%
+        column_spec(4, width = "19cm")
+```
+
+----
+
+I will continue without the Spanish tweets.
+
+The official Twitter name of Donald Trump is "realDonaldTrump", and the twitter name of Hillary Clinton is HillaryClinton. However, to keep it simple I have shortened their names for this analysis.
+
+The table below shows the numbers of non-Spanish tweets that Clinton and Trump have written themselves (retweet==FALSE).
+
+```{r}
+tweets <- tweets %>% filter(lang != "es")
+
+tweets$handle <- sub("realDonaldTrump", "Trump", tweets$handle)
+tweets$handle <- sub("HillaryClinton", "Clinton", tweets$handle)
+tweets$is_retweet <- as.logical(tweets$is_retweet)
+
+kable(tweets %>% filter(is_retweet==FALSE) %>% group_by(handle) %>% count())
+```
+
+----
+
+##Which people were retweeted?
+
+Now, let's see if which people were interesting enough for Donald or Hillary to retweet. I have only displayed people that were retweeted at least 5 times, as in total 274 people were retweeted.
+
+```{r}
+p1 <- tweets %>% filter(original_author != "") %>% group_by(original_author) %>% count() %>% filter(n>=5) %>% arrange(desc(n)) %>% ungroup()
+
+ggplot(p1, aes(x=reorder(original_author, n), y=n)) +
+        geom_bar(stat="identity", fill="darkgreen") + coord_flip() +
+        labs(x="", y="number of tweets retweeted by either Trump or Clinton") +
+        theme(legend.position = "none")
+```
+
+[TheBriefing2016](https://twitter.com/thebriefing2016) is actually a Hillary Clinton campaign account.
+
+#Text mining
+
+##The tweet texts
+
+Below you can find the first 20 (non-Spanish) tweets.
+
+```{r}
+tweets$author <- ifelse(tweets$original_author != "", tweets$original_author, tweets$handle)
+
+kable(head(tweets %>% select(author, handle, text), 20), format = "html") %>%
+        kable_styling() %>%
+        column_spec(1, bold = T, width = "2cm", border_right = T) %>%
+        column_spec(2, bold = T, width = "2cm", border_right = T) %>%
+        column_spec(3, width = "19cm")
+```
+
+----
+
+However, I should realize that text variable contains some Regex, such as `\n` for a new line and also `\"`.
+
+```{r}
+tweets$text[c(2,4)]
+```
+
+In the code below, I am doing some initial cleaning:
+
+* I am removing the `\n` as removePunctuation, which I will use later on, would leave the 'n', and therefore not clean properly.
+* I also do not want the URLs at the end, and am getting rid of those addresses in the code below too.
+* There is a known issue with ampersands (the & sign). I ran into this issue in the first version, and am now removing these manually. See also the comment below by Randi (thanks Randi!). He pointed me to this explanation of the issue [What does "&amp" mean?](https://simoncollis.com/2012/08/12/what-does-amp-mean/)
+* Last but not least, I am converting the tweet text into ascii to remove emoji's (see also [Unicode: Emoji, accents, and international text](http://corpustext.com/articles/unicode.html))
+
+```{r}
+tweets$text <- str_replace_all(tweets$text, "[\n]" , "") #remove new lines
+tweets$text <- str_replace_all(tweets$text, "&amp", "") # rm ampersand
+
+#URLs are always at the end and did not counts towards the 140 characters limit
+tweets$text <- str_replace_all(tweets$text, "http.*" , "")
+
+tweets$text <- iconv(tweets$text, "latin1", "ASCII", sub="")
+```
+
+##Creating a VCorpus object
+
+A corpus is a collection of documents, but it's also important to know that in the `tm` domain, R recognizes it as a data type.  The volatile corpus is held in the computer's RAM. The VCorpus can easily be made with the `tm` package. One column needs to have a unique document id (and must be named doc_id), one column must be named 'text', and all other variables are stored as metadata. I have made separate corpusses for the Clinton and Trump Tweets. The first one that I am investigating is the "Trump corpus".
+
+```{r}
+tweets <- tweets %>% rename (doc_id = id)
+ClintonTweets <- tweets %>% filter(is_retweet=="FALSE" & handle=="Clinton")
+TrumpTweets <- tweets %>% filter(is_retweet=="FALSE" & handle=="Trump")
+
+TrumpCorpus <- DataframeSource(TrumpTweets)
+TrumpCorpus <- VCorpus(TrumpCorpus)
+
+ClintonCorpus <- DataframeSource(ClintonTweets)
+ClintonCorpus <- VCorpus(ClintonCorpus)
+
+TrumpCorpus
+```
+
+As you can see the first 2 tweets had lengths of 95 and 90 characters. I am using the `inspect` function to show this.
+
+```{r}
+inspect(TrumpCorpus[1:2])
+```
+
+With the `content` function, I can view the content of for instance the first tweet.
+
+```{r}
+content(TrumpCorpus[[1]])
+```
+
+One of the cleaning steps is that I will remove the English stopwords. As this is the first time that I am doing this, I am printing the the English stopwords that are stored in the `tm` package in alphabetical order (174 words).
+
+```{r}
+print(sort(stopwords("en")))
+```
+
+This list gave me a decent start, but in the first version of this kernel I still ended up with words such as "will", "just", and "get". As you can see in the comments, Jonathan Bouchet pointed me to a more extensive list of stopwords (thanks Jonathan!) that I am using now. The `tidytext` package contains a list of 1149 English stopwords.
+
+The next step is to do the cleaning. What I am doing in the code below is that I:
+
+* convert all characters into lower characters (no more capitals)
+* remove numbers
+* remove all English stopwords.
+* remove punctuation
+* strip whitespaces
+
+Please be aware that the order matters! For instance, I am removing stopwords before removing punctuation, as the stopwords also include punctuation (such as "i've"). I am using the `content` function again, to check what the first tweet now looks like.
+
+In addition, I am creating a so called `TermDocumentMatrix`, which has all (remaining) terms as rows and all Documents (tweets) as columns. To avoid code duplication later on, I have created the following (user defined) functions:
+
+* CleanCorpus() for the cleaning of the corpus (see steps above)
+* CreateTermsMatrix()
+* RemoveNames(). As both have used their own names and each other's (Twitter) names quite frequently, I have created a function that also removed theses names from a corpus (Extra words removed: Donald, Hillary, Clinton, Trump, realDonaldTrump, HillaryClinton).
+
+```{r}
+CleanCorpus <- function(x){
+     x <- tm_map(x, content_transformer(tolower))
+     x <- tm_map(x, removeNumbers) #remove numbers before removing words. Otherwise "trump2016" leaves "trump"
+     x <- tm_map(x, removeWords, tidytext::stop_words$word)
+     x <- tm_map(x, removePunctuation)
+     x <- tm_map(x, stripWhitespace)
+     return(x)
+}
+
+RemoveNames <- function(x) {
+       x <- tm_map(x, removeWords, c("donald", "hillary", "clinton", "trump", "realdonaldtrump", "hillaryclinton"))
+       return(x)
+}
+
+CreateTermsMatrix <- function(x) {
+        x <- TermDocumentMatrix(x)
+        x <- as.matrix(x)
+        y <- rowSums(x)
+        y <- sort(y, decreasing=TRUE)
+        return(y)
+}
+
+TrumpCorpus <- CleanCorpus(TrumpCorpus)
+TermFreqTrump <- CreateTermsMatrix(TrumpCorpus)
+
+content(TrumpCorpus[[1]])
+```
+
+##The words that Trump used the most
+
+Now, I can finally make a Top20 of most used terms.
+
+```{r}
+TrumpDF <- data.frame(word=names(TermFreqTrump), count=TermFreqTrump)
+
+TrumpDF[1:20,] %>%
+        ggplot(aes(x=(reorder(word, count)), y=count)) +
+        geom_bar(stat='identity', fill="blue") + coord_flip() + theme(legend.position = "none") +
+        labs(x="")
+```
+
+Although I am not a big fan of wordclouds, I still wanted to take the opportunity to see where these clouds may have some value. My conclusion was that it was less informative than the barplot above, when I only used the same, small number of 20 words. However, below I am using it to display the 100 most used words. In this case, it seems a fun solution to present some sort of overview of the most used words.
+
+As the names (especially 'trump' and 'hillary') became very overwhelming in the wordcloud, I removed the names (with the RemoveName function) from the corpus and created the Term Frequency Matrix again first.
+
+```{r}
+set.seed(2018)
+
+TrumpCorpus1 <- RemoveNames(TrumpCorpus)
+TermFreqTrump <- CreateTermsMatrix(TrumpCorpus1)
+TrumpDF <- data.frame(word=names(TermFreqTrump), count=TermFreqTrump)
+
+
+wordcloud(TrumpDF$word, TrumpDF$count, max.words = 100, scale=c(2.5,.5), random.color = TRUE, colors=brewer.pal(9,"Set1"))
+```
+
+Besides the "standard" wordcloud, I have also tried the `wordcloud2` function of the wordcloud2 package. This wordcloud is interactive and I really started to actually like wordclouds. However, I ran into several issues that made me decide to only include a wordcloud2 as an example of what these interactive wordclouds look like. Issues were:
+
+* the wordcloud2 is not the same every time I run it, and setting a seed does not solve this
+* large words sometimes are not displayed, even though I decreased the font size (If "makeamericagreatagain" does not show up in this version, I have been unlucky)
+* the second wordcloud2 (the Clinton variant) did not show up. After knitting, all there was was a big blank space and it does not seem possible to include two wordcloud2's.
+
+Below, you can see what the Trump most frequent words wordcloud2 looks like. **Please feel free to hover over the wordcloud. This show the frequency of each word interactively**.
+
+```{r, out.width="100%"}
+wordcloud2::wordcloud2(TrumpDF[1:100,], color = "random-light", backgroundColor = "grey", shuffle=FALSE, size=0.4)
+```
+
+##The words that Hillary Clinton used the most
+
+In this section, I am plotting the Top20 words that Hillary Clinton used the most as well as a wordcloud of her Top100 words (without the names).
+
+```{r}
+ClintonCorpus <- CleanCorpus(ClintonCorpus)
+TermFreqClinton <- CreateTermsMatrix(ClintonCorpus)
+
+ClintonDF <- data.frame(word=names(TermFreqClinton), count=TermFreqClinton)
+
+ClintonDF[1:20,] %>%
+        ggplot(aes(x=(reorder(word, count)), y=count)) +
+        geom_bar(stat='identity', fill="#FF1493") + coord_flip() + theme(legend.position = "none") +
+        labs(x="")
+```
+
+```{r}
+ClintonCorpus1 <- RemoveNames(ClintonCorpus)
+TermFreqClinton <- CreateTermsMatrix(ClintonCorpus1)
+ClintonDF <- data.frame(word=names(TermFreqClinton), count=TermFreqClinton)
+
+wordcloud(ClintonDF$word, ClintonDF$count, max.words = 100, scale=c(2.5,.5), random.color = TRUE, colors=brewer.pal(9,"Set1"))
+```
+
+##Comparison cloud
+
+In order to find the dissimilar words, I am creating a Corpus with just two documents; one document with all Clinton's Tweets pasted after one another, and one document with all Trump's Tweets pasted after one another.
+
+To visualize the difference, I am using the `comparison.cloud` function. A comparison cloud compares the relative frequency with which a term was used in two or more documents. It does not simply merge two word clouds. Rather, it plots the difference between the word usage in the documents. For example, Hillary Clinton used the word "president" 226 times, and Trump used it 111 times. In the word cloud below, "president" is printed on Clinton's side with a frequency of 115. It does not appear on Trump's side because it is "cancelled out." So this shows you that Hillary Clinton used the word "president" more often.
+
+Again, as the names were overwhelming, I have removed them for this comparison cloud.
+
+```{r, out.width="100%"}
+allClinton <- paste(ClintonTweets$text, collapse = " ")
+allTrump <- paste(TrumpTweets$text, collapse = " ")
+allClTr <- c(allClinton, allTrump)
+
+allClTr <- VectorSource(allClTr)
+allCorpus <- VCorpus(allClTr)
+allCorpus <- CleanCorpus(allCorpus)
+allCorpus <- RemoveNames(allCorpus)
+
+TermsAll <- TermDocumentMatrix(allCorpus)
+colnames(TermsAll) <- c("Clinton", "Trump")
+MatrixAll <- as.matrix(TermsAll)
+
+comparison.cloud(MatrixAll, colors = c("#FF1493", "blue"), scale=c(2.3,.3), max.words = 75)
+
+```
+
+#Bigrams; continuing with tidytext
+
+From the book [Text mining with R](https://www.tidytextmining.com/dtm.html):
+
+> A corpus object is structured like a list, with each item containing both text and metadata (see the tm documentation for more on working with Corpus documents). This is a flexible storage method for documents, but doesn't lend itself to processing with tidy tools. We can thus use the tidy() method to construct a table with one row per document, including the metadata (such as id and datetimestamp) as columns alongside the text.
+
+The `tidy` function sits within the `broom` package. Below, I am converting the Trump and Clinton corpusses into a tibble. For both I am creating tidy tibbles with and without the names.
+
+```{r}
+TrumpTidy <- tidy(TrumpCorpus)
+ClintonTidy <- tidy(ClintonCorpus)
+TrumpTidy1 <- tidy(TrumpCorpus1) #without names
+ClintonTidy1 <- tidy(ClintonCorpus1) #without names
+```
+
+##The Donald Trump bigrams
+
+Below, you can find the Top20 most used bigrams by Trump. The first Top20 is with names (hillary, donald, trump etc). It is at least interesting to see that Trump used 'Crooked Hillary' more often than 'Hillary Clinton' ;-).
+
+```{r, out.width="100%"}
+plotBigrams <- function(tibble, topN=20, title="", color="#FF1493"){
+        x <- tibble %>% select(text) %>%
+        unnest_tokens(bigram, text, token = "ngrams", n = 2)
+        y <- x %>% count(bigram, sort = TRUE) %>% top_n(topN, wt=n) %>%
+        ggplot(aes(x=reorder(bigram, n), y=n)) +
+        geom_bar(stat='identity', fill=color) + coord_flip() +
+        theme(legend.position="none") + labs(x="", title=title)
+}
+
+b1 <- plotBigrams(TrumpTidy, title="With names", color="blue")
+b2 <- plotBigrams(TrumpTidy1, title="Without names", color="blue")
+
+grid.arrange(b1, b2, nrow=1)
+```
+
+##The Hillary Clinton bigrams
+
+As you can see, the Clinton bigrams with names led to very high numbers of 'donald trump', 'hillary clinton', and nothing interesting like 'crooked hillary'. Therefore, in this case I find the the Top20 without names more interesting.
+
+```{r, out.width="100%"}
+b1 <- plotBigrams(ClintonTidy, title="With names")
+b2 <- plotBigrams(ClintonTidy1, title="Without names")
+
+grid.arrange(b1, b2, nrow=1)
+```
+
+#Sentiment analysis
+
+The `tidytext` package contains several sentiment lexicons in the sentiments dataset.
+
+##The Bing lexicon (positive/negative, binary)
+
+The bing lexicon categorizes words in a binary fashion into positive and negative categories.
+ 
+```{r}
+get_sentiments("bing")
+```
+
+###Positive and negative words used most frequently
+
+```{r, out.width="100%", fig.height=6}
+#adding the date of the Tweets from the document level meta data
+DocMetaTrump1 <- meta(TrumpCorpus1)
+DocMetaTrump1$date <- date(DocMetaTrump1$time)
+TrumpTidy1$date <- DocMetaTrump1$date
+
+DocMetaClinton1 <- meta(ClintonCorpus1)
+DocMetaClinton1$date <- date(DocMetaClinton1$time)
+ClintonTidy1$date <- DocMetaClinton1$date
+
+NoNamesTidy <- bind_rows(trump=TrumpTidy1, clinton=ClintonTidy1, .id="candidate")
+Words <- NoNamesTidy %>% unnest_tokens(word, text)
+
+Bing <- Words %>% inner_join(get_sentiments("bing"), by="word")
+
+b1 <- Bing %>% filter(candidate=="trump") %>% count(word, sentiment, sort=TRUE) %>%
+        group_by(sentiment) %>% arrange(desc(n)) %>% slice(1:20) %>%
+        ggplot(aes(x=reorder(word, n), y=n)) +
+        geom_col(aes(fill=sentiment), show.legend=FALSE) +
+        coord_flip() +
+        facet_wrap(~sentiment, scales="free_y") +
+        labs(x="", y="number of times used", title="Donald Trump's most used words") +
+        scale_fill_manual(values = c("positive"="green", "negative"="red"))
+b2 <- Bing %>% filter(candidate=="clinton") %>% count(word, sentiment, sort=TRUE) %>%
+        group_by(sentiment) %>% arrange(desc(n)) %>% slice(1:20) %>%
+        ggplot(aes(x=reorder(word, n), y=n)) +
+        geom_col(aes(fill=sentiment), show.legend=FALSE) +
+        coord_flip() +
+        facet_wrap(~sentiment, scales="free_y") +
+        labs(x="", y="number of times used", title="Hillary Clinton's most used words") +
+        scale_fill_manual(values = c("positive"="green", "negative"="red"))
+grid.arrange(b1, b2)
+```
+
+###Time series of sentiment
+
+In this section I am grouping the numbers of positive and negative words by date.
+
+As you can see, Hillary Clinton started posting Tweets later than Donald Trump.The score is number of positive words minus the number of negative words mentioned in all Tweets posted on a particular day. For both Clinton and Trump there is not really an up or downward trend, and both time series hover around the "neutral" line. The date at the end of July on which Clinton was very positive and Trump very negative seems interesting. I think they could be related (a negative respons of Trump to a (positive) Clinton action seems likely).
+
+```{r, out.width="100%", message=FALSE, warning=FALSE}
+t1 <- Bing %>% filter(candidate=="trump") %>% group_by(date) %>% count(sentiment) %>%
+        spread(sentiment, n) %>% mutate(score=positive-negative) %>%
+        ggplot(aes(x=date, y=score)) +
+        scale_x_date(limits=c(as.Date("2016-01-05"), as.Date("2016-09-27")), date_breaks = "1 month", date_labels = "%b") +
+        geom_line(stat="identity", col="blue") + geom_smooth(col="red") + labs(title="Sentiment Donald Trump")
+
+t2 <- Bing %>% filter(candidate=="clinton") %>% group_by(date) %>% count(sentiment) %>%
+        spread(sentiment, n) %>% mutate(score=positive-negative) %>%
+        ggplot(aes(x=date, y=score)) +
+        scale_x_date(limits=c(as.Date("2016-01-05"), as.Date("2016-09-27")), date_breaks = "1 month", date_labels = "%b") +
+        geom_line(stat="identity", col="blue") + geom_smooth(col="red") + labs(title="Sentiment Hillary Clinton")
+
+grid.arrange(t1, t2, ncol=1)
+```
+
+
+##The AFFIN lexicon (positive/negative, with scores)
+
+The AFINN lexicon assigns words with a score that runs between -5 and 5, with negative scores indicating negative sentiment and positive scores indicating positive sentiment.
+
+```{r}
+get_sentiments("afinn")
+```
+
+Below, you can see that the words that Trump used on January 5th, 2016 led to a score of +17.
+
+```{r}
+Afinn <- Words %>% inner_join(get_sentiments("afinn"), by="word")
+
+t1 <- Afinn %>% select(candidate, date, word, score) %>% filter(date=="2016-01-05" & candidate=="trump") 
+t1 <- t1 %>% mutate_at(vars(candidate:word), funs(as.character(.))) %>%
+        bind_rows(summarise(candidate="trump", date="total score", word="", t1, score=sum(score)))
+kable(t1)
+```
+
+----
+
+Below, you can see the time series based on this lexicon. Although this lexicon seems better/more granular, I am not sure if it really is as it contains fewer words (2476 vs. 6788). For instance, "crooked" is in the Bing lexicon, but not in Afinn!
+
+```{r, out.width="100%", message=FALSE, warning=FALSE}
+a1 <- Afinn %>% filter(candidate=="trump") %>% group_by(date) %>% summarise(score=sum(score)) %>%
+        ggplot(aes(x=date, y=score)) +
+        scale_x_date(limits=c(as.Date("2016-01-05"), as.Date("2016-09-27")), date_breaks = "1 month", date_labels = "%b") +
+        geom_line(stat="identity", col="blue") + geom_smooth(col="red") + labs(title="Sentiment Donald Trump")
+
+a2 <- Afinn %>% filter(candidate=="clinton") %>% group_by(date) %>% summarise(score=sum(score)) %>%
+        ggplot(aes(x=date, y=score)) +
+        scale_x_date(limits=c(as.Date("2016-01-05"), as.Date("2016-09-27")), date_breaks = "1 month", date_labels = "%b") +
+        geom_line(stat="identity", col="blue") + geom_smooth(col="red") + labs(title="Sentiment Hillary Clinton")
+
+grid.arrange(a1, a2)
+```
+
+
+##The nrc lexicon (2 sentiment categories, and 8 basic emotions)
+
+The nrc lexicon categorizes words in a binary fashion ("yes"/"no") into positive or negative sentiment, and also into 8 basic emotions (anger, anticipation, disgust, fear, joy, sadness, surprise, and trust).
+
+```{r}
+get_sentiments("nrc")
+```
+
+As you can see is that the main difference is that Trump uses more negativity, and also a bit more anger, sadness, and disgust.
+
+```{r, out.width="100%"}
+Nrc <- Words %>% inner_join(get_sentiments("nrc"), by="word")
+
+n1 <- Nrc %>% filter(candidate=="trump") %>% count(sentiment) %>%
+        ggplot(aes(x=sentiment, y=n, fill=sentiment)) +
+        geom_bar(stat="identity") + coord_polar() +
+        theme(legend.position = "none", axis.text.x = element_blank()) +
+        geom_text(aes(label=sentiment, y=2500)) +
+        labs(x="", y="", title="Trump")
+n2 <- Nrc %>% filter(candidate=="clinton") %>% count(sentiment) %>%
+        ggplot(aes(x=sentiment, y=n, fill=sentiment)) +
+        geom_bar(stat="identity") + coord_polar() +
+        theme(legend.position = "none", axis.text.x = element_blank()) +
+        geom_text(aes(label=sentiment, y=2500)) +
+        labs(x="", y="", title="Clinton")
+grid.arrange(n1, n2, nrow=1)
+```

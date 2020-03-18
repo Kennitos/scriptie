@@ -1,0 +1,942 @@
+---
+title: "R EDA for Quora Competition"
+output:
+  html_document:
+    fig_height: 5
+    fig_width: 8.5
+    theme: cosmo
+    highlight: tango
+    number_sections: true
+    fig_caption: true
+    toc: true
+---
+
+# Introduction
+
+Here is an Exploratory Data Analysis for the Quora Insincere Questions Classification Competition 
+within the R environment. This is a kernels-only competition with 2 stages. We are not allowed to use any external data but we
+are provided with embeddings. For this EDA we will use the [tidyverse](https://www.tidyverse.org/packages/) and 
+[tidytext](https://www.tidytextmining.com) packages. For modelling we will use 
+the [keras](https://keras.rstudio.com/) package.
+
+Our task is to develop models that identify and flag insincere questions. Submissions are scored on F1 Score between the 
+predicted and the observed targets, which is defined as the harmonic mean of precision and recall:
+
+$$F_1 = 2\frac{precision \cdot recall}{precision + recall}.$$
+
+Let's prepare and have a look at the dataset.
+
+# Preparations {.tabset .tabset-fade .tabset-pills}
+## Libraries
+```{r libs, message=FALSE, warning=FALSE, results='hide'}
+library(wordcloud)
+library(ggraph)
+library(igraph)
+library(Rmisc)
+library(scales)
+library(tidytext)
+library(text2vec)
+library(stopwords)
+library(Matrix)
+library(tokenizers)
+library(knitr)
+library(keras)
+library(tensorflow)
+library(magrittr)
+library(tidyverse)
+
+set.seed(0)
+```
+
+## Load data
+```{r load, message=FALSE, warning=FALSE, results='hide'}
+tr <- read_csv("../input/train.csv")
+te <- read_csv("../input/test.csv")
+subm <- read_csv("../input/sample_submission.csv")
+```
+
+# Glimpse at the Dataset 
+## General info
+```{r info, result='asis', echo=FALSE}
+cat("Train set file size:", file.size("../input/train.csv"), "bytes")
+cat("Train set dimensions:", dim(tr))
+glimpse(tr)
+cat("\n")
+cat("Test set file size:", file.size("../input/test.csv"), "bytes")
+cat("Test set dimensions:", dim(te))
+glimpse(te)
+cat("\n")
+cat("Available embeddings:")
+list.files("../input/embeddings")
+```
+The test set is much smaller then the train set.
+
+## Dataset columns
+There is a total of 3 features: 
+
+* **qid** - unique question identifier
+* **question_text** - Quora question text
+* **target** - a question labeled "insincere" has a value of 1, otherwise 0
+
+## Random rows from the dataset  {.tabset}
+### Train
+```{r, result='asis', echo=FALSE}
+tr %>% 
+  sample_n(5) %>% 
+  kable()
+```
+
+### Test
+```{r, result='asis', echo=FALSE}
+te %>% 
+  sample_n(5) %>% 
+  kable()
+```
+
+### Sample submission
+```{r, result='asis', echo=FALSE}
+subm %>% 
+  sample_n(5) %>% 
+  kable()
+```
+
+## Target variable
+The target variable is binary: 1 stands for "insincere", 0 means "sincere" respectivly. As we can see from the figure the target is imbalanced:
+
+```{r targ1, result='asis', echo=FALSE, fig.height = 4, fig.width = 3, fig.align='center'}
+tr %>% 
+  ggplot(aes(factor(target))) + 
+  geom_bar(fill = "steelblue") + 
+  geom_text(stat = "count", aes(label=..count..), vjust = 1.6, color = "white", size=3.5) +
+  xlab("target") + 
+  theme_minimal()
+```
+
+# Questions Parsing
+## Tokens: words
+Firstly we need to tokenize each question. For this purpose we can divide 
+each sentence into words or [n-grams](https://en.wikipedia.org/wiki/N-gram). Let's start with words:
+
+```{r tok1, result='asis', echo=TRUE}
+tri <- 1:nrow(tr)
+tr_te <- tr %>% 
+  bind_rows(te) %>% 
+  mutate(group = ifelse(is.na(target), "Test", "Train") %>% factor)
+
+rm(tr, te); invisible(gc())
+
+tokens <- tr_te %>%
+  mutate(question_text = str_replace_all(question_text, "[^[:alpha:][:space:]]+", "")) %>%  
+  unnest_tokens(word, question_text)
+
+tokens %>% 
+  count(word, sort = TRUE) %>%
+  top_n(10, n)
+```
+There are a lot of stop words which can be safely removed:
+```{r tok2, result='asis', echo=TRUE}
+tokens %<>% 
+  anti_join(stop_words, by = "word")
+```
+Let's count the words in the train and test sets:
+
+```{r tok3, result='asis', echo=FALSE}
+scale_x_reordered <- function(..., sep = "___") {
+  reg <- paste0(sep, ".+$")
+  ggplot2::scale_x_discrete(labels = function(x) gsub(reg, "", x), ...)
+}
+
+reorder_within <- function(x, by, within, fun = mean, sep = "___", ...) {
+  new_x <- paste(x, within, sep = sep)
+  stats::reorder(new_x, by, FUN = fun)
+}
+
+tokens %>% 
+  select(word, group) %>% 
+  group_by(group) %>% 
+  count(word, group, sort = TRUE) %>%
+  top_n(35, n) %>% 
+  ungroup() %>% 
+  ggplot(aes(reorder_within(word, n, group), n)) +
+  geom_col(fill = "steelblue") +
+  scale_x_reordered() +
+  labs(x = "", y = "") +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(~ group, ncol = 2, scales = "free")
+```
+
+The top words in both sets are almost the same - it's a good sign. It means that the train and test sets are obtained from the same sources.
+
+It is interesting to know which words are in which sentences - sinsere or insinsere:
+
+```{r tok4, result='asis',  warning=FALSE, echo=FALSE}
+tokens %>% 
+  filter(group == "Train") %>% 
+  select(word, target) %>% 
+  group_by(target) %>% 
+  count(word, sort = TRUE) %>%
+  top_n(35, n) %>% 
+  ungroup() %>% 
+  ggplot(aes(reorder_within(word, n, target), n)) +
+  geom_col(fill = "steelblue") +
+  scale_x_reordered() +
+  labs(x = "", y = "") +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(~ target, ncol = 2, scales = "free")
+```
+
+Well, the usual set of words - nothing to comment. But as we can see many words are popular in both groups. This can create some difficulties for a model.
+
+Let's compare the frequency of the words used in sincere and insincere sentences:
+
+```{r tok5, result='asis',  warning=FALSE, echo=FALSE}
+tokens %>% 
+  filter(group == "Train") %>% 
+  group_by(target) %>% 
+  count(word, sort = TRUE) %>% 
+  left_join(tokens %>% 
+              group_by(target) %>% 
+              summarise(total = n()), by = "target") %>%
+  mutate(freq = n/total) %>% 
+  select(target, word, freq) %>% 
+  spread(target, freq) %>%
+  arrange(`0`, `1`) %>% 
+  ggplot(aes(`0`, `1`)) +
+  geom_jitter(alpha = 0.05, size = 0.5, width = 0.25, height = 0.25) +
+  geom_abline(color = "red") +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  labs(x = "Sincere", y = "Insincere") +
+  theme_minimal()
+```  
+
+Words near the red line (such as "people", "India", "country", "bad", "eat") are 
+used with about equal frequencies in both sentences.
+
+## Tokens: bigrams
+A [bigram](https://en.wikipedia.org/wiki/Bigram) is a sequence of two adjacent elements from a string of tokens. 
+Let's repeat the prevous steps for bigrams:
+```{r big1, result='asis', echo=TRUE}
+bigrams <- tr_te %>%
+  unnest_tokens(bigram, question_text, token = "ngrams", n = 2)
+
+bigrams %>% 
+  count(bigram, sort = TRUE) %>%
+  top_n(10, n)
+```
+We can observe a bunch of bigrams with stop words. It would be better to remove them:
+```{r big2, result='asis', echo=TRUE}
+bigrams %<>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>% 
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word,
+         !str_detect(word1, "[[:digit:]]"),
+         !str_detect(word2, "[[:digit:]]")) %>% 
+  unite(bigram, word1, word2, sep = " ")
+```
+Let's count the bigrams for both sets:
+
+```{r big3, result='asis', echo=FALSE}
+bigrams %>% 
+  select(bigram, group) %>% 
+  group_by(group) %>% 
+  count(bigram, group, sort = TRUE) %>%
+  top_n(35, n) %>% 
+  ungroup() %>% 
+  ggplot(aes(reorder_within(bigram, n, group), n)) +
+  geom_col(fill = "steelblue") +
+  scale_x_reordered() +
+  labs(x = "", y = "") +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(~ group, ncol = 2, scales = "free")
+```
+
+And again we can observe similarity between the top bigrams of the train and test sets.
+
+```{r big4, result='asis',  warning=FALSE, echo=FALSE}
+bigrams %>% 
+  filter(group == "Train") %>% 
+  select(bigram, target) %>% 
+  group_by(target) %>% 
+  count(bigram, sort = TRUE) %>%
+  top_n(35, n) %>% 
+  ungroup() %>% 
+  ggplot(aes(reorder_within(bigram, n, target), n)) +
+  geom_col(fill = "steelblue") +
+  scale_x_reordered() +
+  labs(x = "", y = "") +
+  coord_flip() +
+  theme_minimal() +
+  facet_wrap(~ target, ncol = 2, scales = "free")
+```
+
+## Network of bigrams
+It can be interesting to visualize the relationships among words as a graph: 
+```{r nb1, result='asis',  warning=FALSE, echo=FALSE}
+p1 <- bigrams %>% 
+  filter(group == "Train") %>% 
+  separate(bigram, c("word1", "word2"), sep = " ") %>% 
+  count(word1, word2, sort = TRUE) %>% 
+  filter(n > 380) %>%
+  graph_from_data_frame() %>% 
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = 0.8), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 2.5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 2.4) + 
+  labs(x = "", y = "") +
+  ggtitle("Train") + 
+  theme_minimal()
+
+p2 <- bigrams %>% 
+  filter(group == "Test") %>% 
+  separate(bigram, c("word1", "word2"), sep = " ") %>% 
+  count(word1, word2, sort = TRUE) %>% 
+  filter(n > 22) %>%
+  graph_from_data_frame() %>% 
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = 0.8), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 2.5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 2.4) + 
+  labs(x = "", y = "") +
+  ggtitle("Test") + 
+  theme_minimal()
+
+multiplot(p1, p2, cols = 2)
+```
+
+And here the graphs for the two type of sentences from the train set:
+
+```{r nb2, result='asis',  warning=FALSE, echo=FALSE}
+p1 <- bigrams %>% 
+  filter(group == "Train", target == 0) %>% 
+  separate(bigram, c("word1", "word2"), sep = " ") %>% 
+  count(word1, word2, sort = TRUE) %>% 
+  filter(n > 320) %>%
+  graph_from_data_frame() %>% 
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = 0.8), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 2.5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 2.4) + 
+  labs(x = "", y = "") +
+  ggtitle("Sincere (0)") +
+  theme_minimal()
+
+p2 <- bigrams %>% 
+  filter(group == "Train", target == 1) %>% 
+  separate(bigram, c("word1", "word2"), sep = " ") %>% 
+  count(word1, word2, sort = TRUE) %>% 
+  filter(n > 65) %>%
+  graph_from_data_frame() %>% 
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = 0.8), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 2.5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 2.4) + 
+  labs(x = "", y = "") +
+  ggtitle("Insincere (1)") +
+  theme_minimal()
+
+multiplot(p1, p2, cols = 2)
+```
+
+This graphs allow us to reveal some details of the text structure, e.g., such as chains 
+"barack - obama - president - trump - donald".
+
+# Sentiment analysis
+Sentiment analysis can help us to infer whether a section of the text is positive or negative. 
+For sentiment analysis we will use a dataset **sentiments** provided with the package
+**tidytext**. It contains three sentiment lexicons, which are based on unigrams. Here I use the AFINN lexicon, which contains the scores between -5 and 5 for each word.
+```{r sa1, result='asis', message=FALSE, warning=FALSE, echo=TRUE}
+sentiments %>% 
+  sample_n(10) %>% 
+  kable()
+
+sentiments %>% 
+  filter(lexicon == "AFINN") %>% 
+  sample_n(10) %>% 
+  kable()
+```
+```{r tmp00, echo=FALSE}
+cat("\n")
+```
+
+Let's see how sentiment score is distributed among the train and test sets:
+
+```{r sa2, result='asis', message=FALSE, warning=FALSE, echo=TRUE, fig.height = 3.5, fig.width = 8.5}
+tokens_sent <- inner_join(tokens, get_sentiments("afinn")) 
+
+tokens_sent %>%
+  group_by(qid, target, group) %>% 
+  summarise(score = sum(score)) %>% 
+  ungroup() %>% 
+  ggplot(aes(score, fill = group)) +
+  geom_bar(show.legend = FALSE) +
+  labs(x = "") + 
+  facet_wrap(~ group, ncol = 2, scales = "free") +
+  theme_minimal()
+```
+
+The same but for (in)sincere questions from the train set:
+
+```{r sa3, result='asis', message=FALSE, warning=FALSE, echo=FALSE, fig.height = 3.5, fig.width = 8.5}
+tokens_sent %>%
+  filter(group == "Train") %>% 
+  group_by(qid, target) %>% 
+  summarise(score = sum(score)) %>% 
+  ungroup() %>% 
+  group_by(target) %>% 
+  mutate(avg = mean(score)) %>%
+  ungroup() %>% 
+  ggplot(aes(score, fill = factor(target))) +
+  geom_bar(show.legend = FALSE) +
+  geom_vline(aes(xintercept = avg, colour = factor(target)), linetype = "dashed", size = 0.4, show.legend = FALSE) +
+  labs(x = "") + 
+  facet_wrap(~ target, ncol = 2, scales = "free") +
+  theme_minimal()
+```
+
+As we can see the distribution of the score of insincere questions tends to be more negative.
+
+The next figures show the most common positive and negative words:
+
+```{r sa4, result='asis', message=FALSE, warning=FALSE, echo=FALSE}
+p1 <- tokens_sent %>%
+  select(word, score) %>% 
+  add_count(word) %>% 
+  distinct() %>% 
+  arrange(desc(score), desc(n)) %>%
+  slice(1:30) %>% 
+  ggplot(aes(reorder_within(word, n, score), n)) +
+  geom_col(fill = "steelblue", show.legend = FALSE) +
+  scale_x_reordered() +
+  labs(x = "", y = "") + 
+  ggtitle("Positive") + 
+  coord_flip() +
+  theme_minimal()
+
+p2 <- tokens_sent %>%
+  select(word, score) %>% 
+  add_count(word) %>% 
+  distinct() %>% 
+  arrange(score, desc(n)) %>%
+  slice(1:30) %>% 
+  ggplot(aes(reorder_within(word, n, score), n)) +
+  geom_col(fill = "steelblue", show.legend = FALSE) +
+  scale_x_reordered() +
+  labs(x = "", y = "") + 
+  ggtitle("Negative") + 
+  coord_flip() +
+  theme_minimal()
+
+multiplot(p1, p2, cols = 2)
+```
+
+Let's find out the most positive and negative question from the train set:
+```{r sa5, result='asis', message=FALSE, warning=FALSE, echo=FALSE, fig.height = 8.5, fig.width = 8.5}
+top_q <- tokens_sent %>%
+  filter(group == "Train") %>% 
+  group_by(qid, target) %>% 
+  summarise(score = sum(score)) %>% 
+  ungroup() %>% 
+  select(-target) %>% 
+  left_join(tr_te, by = "qid")
+
+p1 <- top_q %>% 
+  arrange(desc(score)) %>%
+  slice(1:6) %>% 
+  ggplot(aes(reorder_within(qid, score, target), score, fill = factor(target))) +
+  geom_col() +
+  scale_x_reordered() +
+  labs(x = "", y = "", fill = "target") + 
+  ggtitle("Positive") + 
+  coord_flip() +
+  geom_text(aes(label=str_wrap(question_text,width = 100)), size=2.6, y = 13.5) +
+  theme_minimal()
+
+p2 <- top_q %>% 
+  arrange(score) %>%
+  slice(1:6) %>% 
+  ggplot(aes(reorder_within(qid, -score, target), score, fill = factor(target))) +
+  geom_col() +
+  scale_x_reordered() +
+  labs(x = "", y = "", fill = "target") + 
+  ggtitle("Negative") + 
+  coord_flip() +
+  geom_text(aes(label=str_wrap(question_text,width = 100)), size=2.6, y = 13.5) +
+  scale_y_reverse() +
+  theme_minimal()
+multiplot(p1, p2, cols = 1)
+```
+
+Correlation between the **target** and **score** is `r cor(top_q$score, top_q$target)` - not that much, but we can try to use the **score** as a feature.
+
+# Wordclouds
+The size of a word shows how important that word. The wordclouds aren't 
+particular useful but they are nice. The wordcloud for the train and test sets:
+```{r wc1, result='asis',  warning=FALSE, echo=FALSE}
+par(mfrow = c(1, 2), mar = c(1, 1, 1, 1))
+
+counts <- tokens %>% 
+  filter(group == "Train") %>% 
+  count(word, sort = TRUE) %>%
+  top_n(150, n) 
+wordcloud(counts$word, counts$n, random.order = FALSE, 
+          colors = RColorBrewer::brewer.pal(8,"Dark2"))
+
+counts <- tokens %>% 
+  filter(group == "Test") %>% 
+  count(word, sort = TRUE) %>%
+  top_n(150, n)
+wordcloud(counts$word, counts$n, random.order = FALSE, 
+          colors = RColorBrewer::brewer.pal(8,"Dark2"))
+```
+
+The wordcloud for sincere and insincere sentences:
+
+```{r wc2, result='asis',  warning=FALSE, echo=FALSE}
+par(mfrow = c(1, 2), mar = c(1, 1, 1, 1))
+
+counts <- tokens %>% 
+  filter(target == 0) %>% 
+  count(word, sort = TRUE) %>%
+  top_n(150, n)
+wordcloud(counts$word, counts$n, random.order = FALSE, colors = RColorBrewer::brewer.pal(8,"Dark2"))
+
+counts <- tokens %>% 
+  filter(target == 1) %>% 
+  count(word, sort = TRUE) %>%
+  top_n(250, n)
+wordcloud(counts$word, counts$n, random.order = FALSE, colors = RColorBrewer::brewer.pal(8,"Dark2"))
+
+par(mfrow = c(1, 1))
+```
+
+It would be interesting to compare the wordclouds for positive and negative tokens tagged using **bing** lexicon
+within sincere and insincere sentences:
+```{r wc3, result='asis',  warning=FALSE, echo=FALSE}
+par(mfrow = c(1, 2), mar = c(1, 1, 1, 1))
+
+tokens %>%
+  filter(target == 0) %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE) %>%
+  reshape2::acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray80", "gray20"), max.words = 150)
+
+tokens %>%
+  filter(target == 1) %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE) %>%
+  reshape2::acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray80", "gray20"), max.words = 200)
+
+par(mfrow = c(1, 1))
+```
+
+# TFIDF
+[TFIDF](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) (short for term frequency–inverse document frequency) 
+helps to find  important words by decreasing the weight for commonly used words and increasing
+the weight for words that can be specific for the document. 
+
+```{r th1, result='asis',  warning=FALSE, echo=TRUE}
+tfidf <- tokens %>%
+  count(qid, word, sort = TRUE) %>% 
+  bind_tf_idf(word, qid, n) %>% 
+  left_join(tr_te, by = "qid") %T>% 
+  glimpse()
+```
+Let's plot the top terms with the highest tf-idf within the positive and negative questions:
+
+```{r th2, result='asis',  warning=FALSE, echo=FALSE, fig.height = 5, fig.width = 8.5}
+q <- top_q %>% 
+  filter(group == "Train") %>% 
+  arrange(desc(score)) %>%
+  slice(1:3) %$% qid
+
+p1 <- tfidf %>%
+  filter(group == "Train") %>%
+  filter(qid %in% q) %>%
+  group_by(qid) %>%
+  arrange(desc(tf_idf)) %>% 
+  slice(1:6) %>% 
+  ungroup %>%
+  ggplot(aes(reorder_within(word, tf_idf, qid), tf_idf, fill = qid)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(target ~ qid, scales = "free") +
+  xlab(NULL) +
+  ylab("tf-idf") +
+  ggtitle("Train - positive score") +
+  coord_flip() +
+  theme_minimal()
+
+q <- top_q %>% 
+  filter(group == "Train") %>% 
+  arrange(score) %>%
+  slice(1:3) %$% qid
+
+p2 <- tfidf %>%
+  filter(group == "Train") %>%
+  filter(qid %in% q) %>%
+  group_by(qid) %>%
+  arrange(desc(tf_idf)) %>% 
+  slice(1:6) %>% 
+  ungroup %>%
+  ggplot(aes(reorder_within(word, tf_idf, qid), tf_idf, fill = qid)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(target ~ qid, scales = "free") +
+  xlab(NULL) +
+  ylab("tf-idf") +
+  ggtitle("Train - negative score") +
+  coord_flip() +
+  theme_minimal()
+
+multiplot(p1, p2, cols = 1)
+```
+```{r th3, result='asis',  warning=FALSE, echo=FALSE, fig.height = 5, fig.width = 8.5}
+top_q <- tokens_sent %>%
+  filter(group == "Test") %>% 
+  group_by(qid) %>% 
+  summarise(score = sum(score)) %>% 
+  ungroup()
+
+q <- top_q %>% 
+  arrange(desc(score)) %>%
+  slice(1:3) %$% qid
+
+p1 <- tfidf %>%
+  filter(group == "Test") %>%
+  filter(qid %in% q) %>%
+  group_by(qid) %>%
+  arrange(desc(tf_idf)) %>% 
+  slice(1:6) %>% 
+  ungroup %>%
+  ggplot(aes(reorder_within(word, tf_idf, qid), tf_idf, fill = qid)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(~ qid, scales = "free") +
+  xlab(NULL) +
+  ylab("tf-idf") +
+  ggtitle("Test - positive score") +
+  coord_flip() +
+  theme_minimal()
+
+q <- top_q %>% 
+  arrange(score) %>%
+  slice(1:3) %$% qid
+
+p2 <- tfidf %>%
+  filter(group == "Test") %>%
+  filter(qid %in% q) %>%
+  group_by(qid) %>%
+  arrange(desc(tf_idf)) %>% 
+  slice(1:6) %>% 
+  ungroup %>%
+  ggplot(aes(reorder_within(word, tf_idf, qid), tf_idf, fill = qid)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(~ qid, scales = "free") +
+  xlab(NULL) +
+  ylab("tf-idf") +
+  ggtitle("Test - negative score") +
+  coord_flip() +
+  theme_minimal()
+
+multiplot(p1, p2, cols = 1)
+```
+
+# Topic Modelling 
+For this section we will use [Latent Dirichlet allocation](https://en.wikipedia.org/wiki/Latent_Dirichlet_allocation),
+which is one of the most common algorithms for topic modelling. It'a generative model, which helps
+to find the mixture of words that is associated with each topic and to detect the mixture of topics that 
+describes each document. To create a LDA model we need a dtm matrix:
+```{r tm1, result='asis',  warning=FALSE, echo=TRUE}
+m_lda <- tokens %>% 
+  count(qid, word) %>% 
+  cast_dtm(qid, word, n) %>% 
+  topicmodels::LDA(k = 6, method = "Gibbs",
+                   control = list(seed = 0, iter = 8))
+
+topics <- tidy(m_lda, matrix = "beta")
+
+topics %>% 
+  sample_n(10) %>% 
+  kable()
+```
+```{r tmp1, result='asis',  warning=FALSE, echo=FALSE}
+cat("\n")
+```
+
+Let's plot the most relevant terms for each topic:
+
+```{r tm2, result='asis',  warning=FALSE, echo=FALSE, fig.height = 5.5, fig.width = 8.5}
+topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(reorder_within(term, beta, topic) , beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(~ topic, ncol = 2, scales = "free") +
+  labs(x = "", y = "") +
+  coord_flip() +
+  theme_minimal()
+  
+rm(tokens, m_lda, topics); invisible(gc())  
+```
+
+It's strange that all topics are connected with India and people.
+
+# Count Features
+Such simple features as counts can be we very useful for a modelling process. 
+So, let's just create them:
+```{r sf1, result='asis',  warning=FALSE, echo=TRUE}
+tr_te %<>% 
+  mutate(length = str_length(question_text),
+         sentences = str_count(question_text, "[[:alnum:] ][.!?]"),
+         words = str_count(question_text, "[[:alpha:][-]]+"),
+         capitals = str_count(question_text, "[A-Z]"),
+         letters = str_count(question_text, "[A-Za-z]"),
+         punctuation = str_count(question_text, "[[:punct:]]"),
+         exclamation = str_count(question_text, fixed("!")),
+         question = str_count(question_text, fixed("?")),
+         digits = str_count(question_text, "[[:digit:]]")) %T>% 
+  glimpse()
+```
+```{r sf2, result='asis', warning=FALSE, echo=FALSE}
+tr_te %>% 
+  filter(group == "Train") %>% 
+  sample_n(4e5) %>% 
+  gather("feature", "value", -target) %>% 
+  filter(feature %in% c("length", "sentences", "words", "exclamation", "question", 
+                        "capitals", "letters", "punctuation", "digits")) %>% 
+  mutate(value = as.integer(value), 
+         target = factor(target)) %>% 
+  group_by(feature, target) %>% 
+  mutate(avg = mean(value)) %>% 
+  ungroup() %>% 
+  ggplot(aes(value, fill = target)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.7, bins = 27) + 
+  geom_vline(aes(xintercept = avg, colour = target), linetype = "dashed", size = 0.4, show.legend = FALSE) +
+  labs(x = "") +
+  theme_minimal() +
+  facet_wrap(~ feature, ncol = 3, scales = "free") +
+  scale_x_continuous(breaks = scales::pretty_breaks(3)) +
+  theme(legend.position = "top") +
+  ggtitle("Train") 
+
+tr_te %>% 
+  filter(group == "Test") %>% 
+  gather("feature") %>% 
+  filter(feature %in% c("length", "sentences", "words", "exclamation", "question", 
+                        "capitals", "letters", "punctuation", "digits")) %>% 
+  group_by(feature) %>% 
+  mutate(value = as.integer(value),
+         avg = mean(value)) %>% 
+  ungroup() %>% 
+  ggplot(aes(value)) +
+  geom_histogram(aes(y=..density..), fill = "steelblue", bins = 27) + 
+  geom_vline(aes(xintercept = avg), colour = "#FF9999", linetype = "dashed", size = 0.5) +
+  labs(x = "") +
+  theme_minimal() +
+  facet_wrap(~ feature, ncol = 3, scales = "free") +
+  scale_x_continuous(breaks = scales::pretty_breaks(3))  +
+  ggtitle("Test")
+```
+
+From these figures we can conclude that mean values of such features as **length**, 
+**letters**, **words** are quite different for sincere and insincere sentences.
+They can be useful for a statictical model.
+
+# GRU with Embeddings
+We can't use external data sources but we're provided with word embeddings. Let's try
+to build a neural network that utilizes them. HEre for modelling we will use Keras.
+
+We’ll start with text pre-processing using regular expressions: as we can't interp numerical values we will
+replace them with **#** signs. Also we'll surround some symbols with spaces:
+```{r emb0, result='asis',  warning=FALSE, echo=TRUE}
+puncts <- c(',', '.', '"', ':', ')', '(', '-', '!', '?', '|', ';', "'", '$', '&', '/', '[', ']', '>', '%', '=', '#', '*', '+', '\\', '•',  '~', '@', '£', '·', '_', '{', '}', '©', '^', '®', '`', '<', '→', '°', '€', '™', '›', '♥', '←', '×', '§', '″', '′', 'Â', '█', '½', 'à', '…', '“', '★', '”', '–', '●', 'â', '►', '−', '¢', '²', '¬', '░', '¶', '↑', '±', '¿', '▾', '═', '¦', '║', '―', '¥', '▓', '—', '‹', '─', '▒', '：', '¼', '⊕', '▼', '▪', '†', '■', '’', '▀', '¨', '▄', '♫', '☆', 'é', '¯', '♦', '¤', '▲', 'è', '¸', '¾', 'Ã', '⋅', '‘', '∞', '∙', '）', '↓', '、', '│', '（', '»', '，', '♪', '╩', '╚', '³', '・', '╦', '╣', '╔', '╗', '▬', '❤', 'ï', 'Ø', '¹', '≤', '‡', '√')
+
+puncts <- paste(puncts, collapse = "|")
+puncts <- paste("([", puncts, "])", sep = "", collapse = "")
+
+tr_te %<>%
+  mutate(question_text = str_replace_all(question_text, "[0-9]{5,}", "#####"),
+         question_text = str_replace_all(question_text, "[0-9]{4}", "####"),
+         question_text = str_replace_all(question_text, "[0-9]{3}", "###"),
+         question_text = str_replace_all(question_text, "[0-9]{2}", "##"),
+         question_text = str_replace_all(question_text, puncts, " \\1 "))
+```
+
+The next step is to use **text_tokenizer()**, which helps to transform
+each sentence into a sequence of integer tokens. Also we need to pad sequences 
+to make them of equal length:
+
+```{r emb1, result='asis',  warning=FALSE, echo=TRUE}
+maxlen <- 80
+max_words <- 30000           
+emb_dim <- 300
+
+tokenizer <- text_tokenizer(num_words = max_words) %>% 
+  fit_text_tokenizer(tr_te$question_text)
+
+word_idx <- tokenizer$word_index
+
+sequences <- texts_to_sequences(tokenizer, tr_te$question_text) %>% 
+  pad_sequences(maxlen = maxlen)
+
+cat("Unique tokens:", length(word_idx))
+
+invisible(gc())
+```
+For example, "`r tr_te$question_text[1]`" becomes "`r sequences[1, ]`".
+
+Next, we need to create training, validation and test sets:
+```{r emb2, result='asis',  warning=FALSE, echo=TRUE}
+y <- tr_te %>% filter(group == "Train") %$% target
+val <- caret::createDataPartition(y, p = 0.15, list = F) %>% c()
+
+X_tr <- sequences[tri, ][-val, ]; y_tr <- y[-val]
+X_val <- sequences[tri, ][val, ]; y_val <- y[val]
+X_te <- sequences[-tri, ]
+
+rm(sequences); invisible(gc())
+```
+The next step is to parse the text file with embeddings. Here I use
+the mean of two different ebeddings:
+```{r emb3, result='asis',  warning=FALSE, echo=TRUE}
+get_emb_mat <- function(path, skip) {
+  
+  cat("Reading embeddings from", path, "...\n")
+  emb <- data.table::fread(path, skip = skip, quote = "", data.table = FALSE, verbose = FALSE, 
+                           showProgress = FALSE) %>% rename(word = V1)
+
+  m <- emb %>% select(-word) %>% data.matrix() %>% mean() %>% round(4)
+  s <- emb %>% select(-word) %>% data.matrix() %>% sd() %>% round(4)
+  
+  invisible(gc())
+  
+  word_idx <- unlist(tokenizer$word_index)
+  
+  cat("Creating embedding matrix...\n")
+  emb_mat <- tibble(word = names(word_idx), key = word_idx) %>%
+    filter(key < max_words) %>% 
+    arrange(key) %>% 
+    left_join(emb, by = "word") %>% 
+    arrange(key) %>% 
+    select(-word, -key) %>% 
+    mutate_all(funs(round(., digits = 4))) %>% 
+    data.matrix() 
+  
+  idx <- is.na(emb_mat)
+  emb_mat[idx] <- rnorm(sum(idx), m, s) %>% round(digits = 4)
+  
+  emb_mat <- rbind(rnorm(emb_dim, m, s) %>% round(digits = 4), emb_mat)
+  
+  invisible(gc())
+  
+  array(emb_mat, c(max_words, emb_dim))
+}
+  
+emb_mat <- get_emb_mat("../input/embeddings/wiki-news-300d-1M/wiki-news-300d-1M.vec", 1)
+
+```
+The next step is to define a neural network model. Also we need to load the embedding matrix into the embedding layer
+and freeze its weights:
+```{r emb5, result='asis',  warning=FALSE, echo=TRUE}
+def_nn <- function() {
+  inp <- layer_input(shape = maxlen, dtype = "int32")
+  out <- layer_embedding(inp, max_words, emb_dim, weights = list(emb_mat), trainable = FALSE) %>% 
+    layer_cudnn_gru(units = maxlen) %>% 
+    layer_dense(units = 128, activation = "relu") %>%
+    layer_dropout(rate = 0.25) %>% 
+    layer_dense(units = 64, activation = "relu") %>% 
+    layer_dropout(rate = 0.25) %>% 
+    layer_dense(units = 1, activation = "sigmoid")
+  
+  m_nn <- keras_model(inp, out)
+  
+  m_nn %>% keras::compile(optimizer = "adam",
+                          loss = "binary_crossentropy")
+  
+  return(m_nn)
+}
+```
+Since the F1 score was removed from the Keras package, it would be nice to estimate it during training. Let's create
+a custom callback using [R6Class](https://adv-r.hadley.nz/r6.html):
+```{r emb51, result='asis',  warning=FALSE, echo=TRUE}
+F1Score <- R6::R6Class("F1Score",
+                       inherit = KerasCallback,
+                       
+                       public = list(
+                         
+                         val = NA,
+                         interval = NA,
+                         
+                         initialize = function(val, interval = 1) {
+                           self$val <- val
+                           self$interval <- interval
+                         },
+                         
+                         on_epoch_end = function(epoch, logs) {
+                           if (epoch %% self$interval == 0) {
+                             y_pred <- round(self$model$predict(self$val[[1]]))
+                             score <- ModelMetrics::f1Score(self$val[[2]], y_pred)
+                             cat("F1 score on epoch", epoch+1, ":", score, "\n")
+                           }
+                         }
+                       ))
+```
+Here I use early stopping callback with model checkpoint. 
+Now we are ready to train the net:
+```{r emb6, result='asis', warning=FALSE, echo=TRUE}
+m_nn <- def_nn()
+
+early_stopping <- callback_early_stopping(patience = 4)
+f1_score <- F1Score$new(list(X_val, y_val), 1)
+check_point <- callback_model_checkpoint("model.h5", save_best_only = TRUE, verbose = 1, mode = "auto")
+
+hist <- m_nn %>% keras::fit(X_tr, y_tr,
+                            epochs = 22,
+                            batch_size = 4096,
+                            validation_data = list(X_val, y_val),
+                            callbacks = list(early_stopping, f1_score, check_point),
+                            view_metrics = FALSE,
+                            verbose = 2)
+
+load_model_weights_hdf5(m_nn, "model.h5")
+
+plot(hist) + theme_minimal()
+```
+
+Also we need to find a threshold for F1 score:
+```{r emb70, result='asis', warning=FALSE, echo=TRUE}
+threshold_search <- function(act, pred) {
+  best_threshold <- 0
+  best_score <- 0
+  for (threshold in seq(0.1, 0.99, 0.005)) {
+    score = ModelMetrics::f1Score(act, as.integer(pred > threshold))
+    if (score > best_score) {
+      best_threshold <- threshold
+      best_score <- score
+    }
+  }
+  list(threshold = best_threshold, f1 = best_score)
+}
+
+threshold <- threshold_search(y_val, predict(m_nn, X_val))
+cat("Optimal threshold:", threshold$threshold, "\tscore:", threshold$f1)
+```
+Predictions within the threshold:
+```{r emb7, result='asis', warning=FALSE, echo=TRUE}
+pred_nn <- as.integer(predict(m_nn, X_te) > threshold$threshold)
+read_csv("../input/sample_submission.csv")  %>%  
+  mutate(prediction = pred_nn) %>%
+  write_csv("submission.csv")
+```

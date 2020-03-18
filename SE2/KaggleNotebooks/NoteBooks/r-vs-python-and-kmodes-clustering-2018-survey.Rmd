@@ -1,0 +1,961 @@
+---
+title: "R vs. Python and Kmodes clustering [2018 survey]"
+author: "Erik Bruin"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 4
+    code_folding: hide
+    theme: cosmo
+    highlight: tango
+  
+---
+
+```{r}
+on_kaggle <- 1
+
+if (on_kaggle == 0){
+  path <- "" #load local copy of dataset
+    } else {
+  path <- "../input/" #access dataset on Kaggle
+    }
+```
+
+#Executive Summary
+
+Kaggle introduces this challenge as follows:
+
+> Welcome to Kaggle's second annual Machine Learning and Data Science Survey ― and our first-ever survey data challenge.
+
+> This year, as last year, we set out to conduct an industry-wide survey that presents a truly comprehensive view of the state of data science and machine learning. The survey was live for one week in October, and after cleaning the data we finished with 23,859 responses, a 49% increase over last year!
+
+> There's a lot to explore here. The results include raw numbers about who is working with data, what’s happening with machine learning in different industries, and the best ways for new data scientists to break into the field. We've published the data in as raw a format as possible without compromising anonymization, which makes it an unusual example of a survey dataset.
+
+The angle on the data that I have chosen to explore is to figure out the differences and similarities among respondents that use Python, R, or both Python & R on a regular basis. Please be aware that the **results are biased towards Kaggle users**, and may not be representative to the "real-world".
+
+My main finding are:
+
+* Of the respondents, 85% use Python on a regular basis and 35% use R on a regular basis. The percentage of respondents that use R-only is low; most R-users also use Python on a regular basis.
+
+* In all countries, Python is used more than R. Countries with the highest relative usage of R are the US, Spain, and Australia. Respondents from China and Russia on the other hand use very little R.
+
+* Regarding the response by industry, we see a high  numbers of respondents working in Computers/Technology. These respondents have a clear preference for Python, just like the Kagglers working in Online/Internet and Military/Security/Defense. In Govenment/Public services, more than 50% of respondents (also) worked with R. Other sectors with many Kagglers (also) using R are Insurance/Risk Assessment and Marketing/CRM.
+
+* Regarding the current role of the respondents, the main observations here are:
+    * Software engineers, data engineers, but also students use a lot of Python
+    * As expected, statisticians are very R oriented
+    * Data analysts, business analysts, consultants also use relatively much R
+
+* Python-users are generally a little younger than R-users
+
+* R-only users tend to have a little more experience in their current role than Python-only users and users of both Python & R
+
+* Relatively, R is used a little more often when it comes down to analyzing and understanding data to influence product or business decisions
+
+* Regarding the programming language used most often:
+    * Most respondents who indicated that Python is the language that they use the most don’t use R regularly as well.
+    * Most respondents who indicated that R is the language that they use Python on a regular basis too.
+    * Of the respondents who use both Python & R on a regular basis, most people have Python as the language that they use the most. However, this difference is much smaller than the difference between Kagglers only using R or Python.
+
+* Deep Learning packages, which are very Python oriented (although Keras and Tensorflow are also released for R), are often the most used packages of Python respondents. R-users often have machine learning packages such as randomForest, XGBoost and LighGBM, as their most used machine learning algorithm. Therefore, Deep Learning seems to push Kagglers into using Python.
+
+* Regarding visualization libraries, Matplotlib is clearly the library most used. However, when I looked at the number of respondents who have used ggplot in the past 5 years, I found out that more people have used ggplot in the past 5 years than the total numbers of regular R-users (7751 vs 6685)! This sounds a bit strange, but might have the following reasons:
+    * subtile differences in the questions. Regarding the language usage the question was if a respondent uses the language regularly, while the question regarding the libaries was if a respondent has used a package in the past 5 years. Having used a package in the past 5 years does not necessarily mean regular use.
+    * although I have not seen anyone using it yet on Kaggle, ggplot is also available for Python
+
+* The percentage of Master’s and PhD’s is higher among R-users when compared to the Python only group
+
+* Regarding the salary distribution of US respondents only, R-only users seem to earn salaries between 40k-90k (which is below average in the US) more often than Python-only and users that us both. However, the respondents of R-only in the US was only 293, which makes the statistical significance of this observation questionable. I suspected that both the current role and the industry have a stronger correlation with the US salaries earned than the programming languages used regularly. Analysis shows that:
+    * Of the three roles with most respondents, Data Analysts mostly earn up to $90,000, Data Scientists mostly earn at least $70,000, Software engineers can earn anything (the percentage blocks remain reasonably constant)
+    * Most low-end salaries are paid in Academics/Education, and most high-end salaries are paid in Computers/Technology.
+    
+* At the end of my analysis, I clustered the respondents into 6 clusters with Kmodes clustering. Many variabeles were fed in the clustering algorithm, but to give a high level overview of the clusters I am only showing a few of those in this summary:
+    * Cluster 1 modes: regular use of Python-only, current role is Student, Bachelor degree
+    * Cluster 2 modes: regular use of Python-only, current role is Data Scientist, Master's Degree
+    * Cluster 3 modes: regular use of Python-only, current role is Data Scientist, Master's Degree
+    * Cluster 4 modes: regular use of both R & Python, current role is Data Scientist, Master's Degree
+    * Cluster 5 modes: regular use of R-only, current role is Data Analyst, Master's Degree
+    * Cluster 6 modes: regular use of both R & Python, current role is Data Analyst, Bachelor's Degree
+
+* The main difference between clusters 2 and 3 is that the respondents in cluster 3 are very deep learning oriented. These respondent do not use "regular" machine learning algorithms like XGBoost and Random Forest a lot. The respondents in cluster 2 use both deep learning and "regular" machine learning a lot. The data scientists in cluster 4 are probably best described as "they use everything"; both R & Python, machine learning, deep learning, and a majority has also made R-Shiny apps in the past 5 years. More details on the cluster can be found in the last section of this analysis.
+
+#Introduction
+
+The discussion whether to use Python or R for Data Science is ongoing. Generally, R is known for being a bit more mature, R visualizations generally beat Python visualizations, and it was always designed for Data Analysis/Science. Python on the other hand is a little easier to learn, and is said to be a little better at Machine Learning and especially Deep Learning. In addition, Python is also a general purpose programming language, which makes it a logical choice for people who are already using Python for other purposes.
+
+Kaggle is not the real world, and it is known that most people use Python on Kaggle. I think that at least one of the reasons is that Kaggle hosts a lot of Deep Learning competitions. Although libraries like Keras and Tensorflow are now also available for R, I think that especially those Deep Learning competitions lead to relatively high Python usage on Kaggle. However, if I look at the top100 Kagglers in the kernels ranking, I also see a lot of R-users. Also, it is also often recommended that it is best to know both, and select your Language based on the task on hand.
+
+In this kernel, I am going to focus on three groups: R-users, Python-users, and users who use both regularly.
+
+<center><img src="https://i.imgur.com/coSVJGE.png" style="width: 600px;"/></center>
+
+#Loading libraries and data
+
+In this section, I am loading the libraries that I need and the datafiles.
+
+##Loading libraries
+
+```{r, message=FALSE, warning=FALSE}
+library(klaR)
+library(tidyverse)
+library(scales)
+library(knitr)
+library(kableExtra)
+library(ggrepel)
+library(gridExtra)
+library(lubridate)
+library(data.table)
+library(RColorBrewer)
+```
+
+##Loading the data
+
+```{r, warning=FALSE, message = FALSE}
+#mc <- read_csv(str_c(path,'multipleChoiceResponses.csv'))
+mc <- as.tibble(fread(str_c(path,'multipleChoiceResponses.csv'), skip = 1, encoding= "UTF-8"))
+#ff <- as.tibble(fread(str_c(path,'freeFormResponses.csv')))
+
+mc <- mc %>%
+  mutate_if(is_character, as_factor)
+```
+
+I have made a table that gives me the opportunity to get a good feel for the multiple choice questions and answers. By using the scroll bar, you can see all the questions and a sample of the first 6 respondents.
+
+```{r, out.width="100%"}
+kable(mc[1:6,], format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+        column_spec(column=c(1,4), width = "5em; min-width: 5em;") %>%
+        column_spec(column=c(2,3,5), width = "10em; min-width: 10em;") %>%
+        column_spec(column=6:395, width = "25em; min-width: 25em;") %>%
+        row_spec(0:6, align="center") %>%
+        scroll_box(width = "100%")
+```
+
+Altogether, we have the results of 23,859 respondents. However, not all respondents have answered all questions. In the discussion section, Paul Mooney states that:
+
+> Not every respondent was asked every question and this was based off of their answers to previous questions. The survey schema document indicates which questions were used as branching points to determine who gets asked what questions. Likewise, the "# of Respondents" row gives you a count of rows in multipleChoiceResponses.csv for each question, with the very first row being the question itself.
+> There was no option to skip a question and move forward to the next question but there was an option to stop taking the survey entirely.
+>The surveySchema.csv document is mostly just helpful for keeping track of how many respondents were asked each question.
+
+#Numbers of Kagglers using R, Python or both on a regular basis
+
+Question: What programming languages do you use on a regular basis? (Select all that apply)
+
+This question was answered by 18,828 respondents. 
+
+Altogether, 83.4% (15711/18828) of respondents indicated that they use Python on a regular basis, and 35.5% (6685/18828) indicated that they use R on a regular basis. However, for my analysis I am also very interested in people that use both on a regular basis. The split into the categories that I am going to investigate can be found below.
+
+Although I know that Python usage on Kaggle is high, it still surprises me to see that the numbers of "Python only" users is so much higher than the number of "R only users". In addition, it is interesting to see that 1697 respondents left both languages unchecked. I wonder who they are. Probably people learning R or Python who cannot justify the statement that they are "regular users" yet?
+
+```{r, echo=FALSE}
+mc <- mc %>%
+        rename(Python_user = "What programming languages do you use on a regular basis? (Select all that apply) - Selected Choice - Python",
+               R_user = "What programming languages do you use on a regular basis? (Select all that apply) - Selected Choice - R",
+               country = "In which country do you currently reside?",
+               industry = "In what industry is your current employer/contract (or your most recent employer if retired)? - Selected Choice",
+               age = "What is your age (# years)?",
+               analyze_business = "Select any activities that make up an important part of your role at work: (Select all that apply) - Selected Choice - Analyze and understand data to influence product or business decisions",
+               machine_learning = "Select any activities that make up an important part of your role at work: (Select all that apply) - Selected Choice - Build and/or run a machine learning service that operationally improves my product or workflows",
+               prototype = "Select any activities that make up an important part of your role at work: (Select all that apply) - Selected Choice - Build prototypes to explore applying machine learning to new areas",
+               build_infrastructure = "Select any activities that make up an important part of your role at work: (Select all that apply) - Selected Choice - Build and/or run the data infrastructure that my business uses for storing, analyzing, and operationalizing data",
+               research_ml = "Select any activities that make up an important part of your role at work: (Select all that apply) - Selected Choice - Do research that advances the state of the art of machine learning",
+               years_code = "How long have you been writing code to analyze data?",
+               years_ML = "For how many years have you used machine learning methods (at work or in school)?",
+               Jupyter_iPython = "Which of the following integrated development environments (IDE's) have you used at work or school in the last 5 years? (Select all that apply) - Selected Choice - Jupyter/IPython",
+               RStudio = "Which of the following integrated development environments (IDE's) have you used at work or school in the last 5 years? (Select all that apply) - Selected Choice - RStudio",
+               most_often = "What specific programming language do you use most often? - Selected Choice",
+               tensorflow = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - TensorFlow",
+               keras = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Keras",
+               pytorch = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - PyTorch",
+               caret = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Caret",
+               scikit = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Scikit-Learn",
+              spark = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Spark MLlib",
+              h2o = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - H20",
+              fast_ai = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Fastai",
+              mxnet = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Mxnet",
+              xgboost = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Xgboost",
+              mlr = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - mlr",
+              prophet = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Prophet",
+              random_forest = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - randomForest",
+              lightgbm = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - lightgbm",
+              catboost = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - catboost",
+              cntk = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - CNTK",
+              caffe = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - Caffe",
+              no_ml_packages = "What machine learning frameworks have you used in the past 5 years? (Select all that apply) - Selected Choice - None",
+              ml_most_used = "Of the choices that you selected in the previous question, which ML library have you used the most? - Selected Choice",
+              degree = "What is the highest level of formal education that you have attained or plan to attain within the next 2 years?",
+              ggplot = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - ggplot2",
+              matplotlib = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Matplotlib",
+              altair = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Altair",
+              shiny = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Shiny",
+              d3 = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - D3",
+              plotly = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Plotly",
+              bokeh = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Bokeh",
+              seaborn = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Seaborn",
+              geoplotlib = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Geoplotlib",
+              leaflet = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Leaflet",
+              lattice = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - Lattice",
+              no_viz_libraries = "What data visualization libraries or tools have you used in the past 5 years? (Select all that apply) - Selected Choice - None",
+              viz_lib_used_most = "Of the choices that you selected in the previous question, which specific data visualization library or tool have you used the most? - Selected Choice",
+              salary = "What is your current yearly compensation (approximate $USD)?",
+              current_role = "Select the title most similar to your current role (or most recent title if retired): - Selected Choice",
+              experience = "How many years of experience do you have in your current role?",
+              Q48 = "Do you consider ML models to be \"\"black boxes\"\" with outputs that are difficult or impossible to explain?"
+              
+               )
+```
+
+```{r}
+#creating the new variable RPython
+mc <-mc %>% 
+        mutate(RPython=str_c(Python_user, R_user)) %>%
+        mutate_at(vars(RPython), as.factor) %>%
+        mutate(RPython=recode(RPython, PythonR="Python & R"))
+
+mc %>% filter(RPython!="") %>% count(RPython) %>%
+        ggplot(aes(x=RPython, y=n, fill=RPython)) +
+        geom_bar(stat="identity") + labs(x="", y="") +
+        geom_label(aes(label=n)) +
+        theme(legend.position = "none")
+```
+
+
+##Kagglers using R, Python or both on a regular basis by country
+
+We can see that from the 15 countries with most survey respondents, the US, Spain, and Australia have the highest percentages of users that use R (either R-only or both R & Python). China and Russia on the other hand are very Python oriented.
+
+```{r, out.width="100%"}
+mc$country <- str_trunc(as.character(mc$country), width = 25, side="right")
+mc$country <- as.factor(mc$country)
+
+by_country <- mc %>% filter(RPython!="") %>% group_by(country) %>% count(RPython)
+
+top_country <- by_country %>% group_by(country) %>%
+        filter(country!="Other") %>%
+        summarize(total=sum(n)) %>%
+        arrange(desc(total)) %>%
+        slice(1:15) %>%
+        arrange(total)
+
+c1 <- by_country %>% filter(country %in% top_country$country) %>%
+        ggplot(aes(x=country, y=n, fill=RPython)) +
+        geom_bar(stat="identity", position="dodge") + coord_flip() +
+        labs(x="", y="Number of Kagglers") +
+        scale_x_discrete(limits=top_country$country) +
+        theme(legend.justification=c(1,0), legend.position=c(1,0)) +
+        theme(axis.text.y = element_text(size=8))
+
+c2 <- by_country %>% filter(country %in% top_country$country) %>%
+        ggplot(aes(x=country, y=n, fill=RPython)) +
+        geom_bar(stat="identity", position="fill") + coord_flip() +
+        labs(x="", y="Percent") +
+        scale_x_discrete(limits=top_country$country) +
+        scale_y_continuous(labels=percent) +
+        theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank()) 
+
+grid.arrange(c1, c2, widths=c(1.5,1), nrow=1)
+```
+
+##Kagglers using R, Python or both on a regular basis by industry
+
+Here we see a high number of respondents working in Computers/Technology. These respondents have a clear preference for Python, just like the Kagglers working in Online/Internet and Military/Security/Defense. In Govenment/Public services, more than 50% of respondents (also) worked with R. Other sectors with many Kagglers (also) using R are Insurance/Risk Assessment and Marketing/CRM.
+
+```{r, out.width="100%"}
+mc$industry <- str_trunc(as.character(mc$industry), width = 25, side="right")
+mc$industry <- as.factor(mc$industry)
+
+by_industry <- mc %>% filter(RPython!="") %>% group_by(industry) %>% count(RPython)
+top_industry <- by_industry %>% group_by(industry) %>%
+        filter(!industry %in% c("Other", "I am a student", "")) %>%
+        summarize(total=sum(n)) %>%
+        arrange(desc(total)) %>%
+        slice(1:15) %>%
+        arrange(total)
+
+c1 <- by_industry %>% filter(industry %in% top_industry$industry) %>%
+        ggplot(aes(x=industry, y=n, fill=RPython)) +
+        geom_bar(stat="identity", position="dodge") + coord_flip() +
+        labs(x="", y="Number of Kagglers") +
+        scale_x_discrete(limits=top_industry$industry) +
+        theme(legend.justification=c(1,0), legend.position=c(1,0)) +
+        theme(axis.text.y = element_text(size=8))
+
+c2 <- by_industry %>% filter(industry %in% top_industry$industry) %>%
+        ggplot(aes(x=industry, y=n, fill=RPython)) +
+        geom_bar(stat="identity", position="fill") + coord_flip() +
+        labs(x="", y="Percent") +
+        scale_x_discrete(limits=top_industry$industry) +
+        scale_y_continuous(labels=percent) +
+        theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+
+grid.arrange(c1, c2, widths=c(1.5,1), nrow=1)
+```
+
+##Kagglers using R, Python or both on a regular basis by current role
+
+Question: Select the title most similar to your current role (or most recent title if retired): - Selected Choice
+
+The main observations here are:
+
+* Software engineers, data engineers, but also students use a lot of Python
+* As expected, statisticians are very R oriented
+* Data analysts, business analysts, consultants also use relatively much R
+
+Of the observations above, only the fact that students use mostly Python is probably slightly surprising. However, I found especially the Data Scientist distribution interesting, as close to half of the Data Scientists (also) use R on a regular basis. Due to the Python dominance on Kaggle, this is a bit more than I personally expected.
+
+```{r, out.width="100%"}
+by_role <- mc %>% filter(RPython!="") %>% group_by(current_role) %>% count(RPython) 
+top_current_role <- by_role %>% group_by(current_role) %>%
+        filter(current_role!="Other") %>%
+        summarize(total=sum(n)) %>%
+        arrange(desc(total)) %>%
+        slice(1:15) %>%
+        arrange(total)
+
+c1 <- by_role %>% filter(current_role %in% top_current_role$current_role) %>%
+        ggplot(aes(x=current_role, y=n, fill=RPython)) +
+        geom_bar(stat="identity", position="dodge") + coord_flip() +
+        labs(x="", y="Number of Kagglers") +
+        scale_x_discrete(limits=top_current_role$current_role) +
+        theme(legend.justification=c(1,0), legend.position=c(1,0)) +
+        theme(axis.text.y = element_text(size=8))
+
+c2 <- by_role %>% filter(current_role %in% top_current_role$current_role) %>%
+        ggplot(aes(x=current_role, y=n, fill=RPython)) +
+        geom_bar(stat="identity", position="fill") + coord_flip() +
+        labs(x="", y="Percent") +
+        scale_x_discrete(limits=top_current_role$current_role) +
+        scale_y_continuous(labels=percent) +
+        theme(legend.position="none") +
+        theme(axis.title.y = element_blank(), axis.text.y = element_blank()) 
+
+grid.arrange(c1, c2, widths=c(1.5,1), nrow=1)
+```
+
+#Age distribution
+
+##Age distribution of all Kagglers
+
+Below, we can see that the Age distribution is right-skewed, with the most common value being age 25-29.
+
+```{r}
+age_buckets <- c("18-21", "22-24","25-29","30-34","35-39","40-44","45-49","50-54","55-59","60-69","70-79","80+")
+
+mc <- mc %>% mutate(age = fct_relevel(age, age_buckets))
+
+mc%>% count(age) %>%
+        ggplot(aes(x=age, y=n)) +
+        geom_col(fill="blue") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        labs(x="Age", y="Number of Respondents")
+```
+
+##Age distribution of Kagglers using R, Python or Both
+
+We cannot really calculate mean and medians for each distribution easily and reliably (age buckets are not the same; vary between 3 and 10 years), but in the graphs below we can see quite well that R users tend to be a bit older than Python users.
+
+```{r}
+mc %>% filter(RPython!="") %>% group_by(age) %>% count(RPython) %>%
+        ggplot(aes(x=RPython, y=n, fill=age)) +
+        geom_bar(stat="identity", position="fill") +
+        scale_y_continuous(labels=percent) +
+        labs(x="", y="")
+```
+
+#Years of experience in current role
+
+##Years of experience in current role of all Kagglers
+
+A high age does not necessarily mean a lot of experience in the current role (somebody with age 50 may have picked up data science just a few years ago). I have excluded students, as I only want to map work experience.
+
+What we see here is a right-skewed distribution with many people with little experience in their current role. However, there is a peak at 5-10 years of experience in the current role.
+
+```{r}
+experience_levels <- c("0-1", "1-2", "2-3", "3-4", "4-5", "5-10", "10-15", "15-20", "20-25", "25-30", "30 +", "")
+mc <- mc %>% mutate(experience = fct_relevel(experience, experience_levels))
+
+mc %>% filter(current_role!="Student" & experience!="") %>% count(experience) %>%
+        ggplot(aes(x=experience, y=n)) +
+        geom_col(fill="blue") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        labs(x="Years of experience in current role", y="Number of Respondents")
+```
+
+##Years of experience in current role of Kagglers using R, Python or Both
+
+Below, you can see that there is very little difference between Python-only users and respondents who use both R & Python. R-only users tend to have a little more experience in their current role.
+
+```{r}
+mc %>% filter(RPython!="" & current_role!="Student" & experience!="") %>% group_by(experience) %>% count(RPython) %>%
+        ggplot(aes(x=RPython, y=n, fill=experience)) +
+        geom_bar(stat="identity", position="fill") +
+        scale_y_continuous(labels=percent) +
+        labs(x="", y="")
+```
+
+
+#Influence product or business decisions versus Machine Learning
+
+Question: "Select any activities that make up an important part of your role at work: (Select all that apply)
+
+* 9532 respondents selected "Analyze and understand data to influence product or business decisions"
+* 5481 respondents selected "Build and/or run a machine learning service that operationally improves my product or workflows"
+* 7233 respondents selected "Build prototypes to explore applying machine learning to new areas"
+* 5233 respondents selected "Build and/or run the data infrastructure that my business uses for storing, analyzing, and operationalizing data"
+* 4934 respondents selected "Do research that advances the state of the art of machine learning"
+
+As R is known to be a little more business oriented and Python is know to be a bit better at Machine learning, I was curious to see how this plays out! As you can see, relatively more R is used for business decisions indeed.
+
+```{r}
+business <- mc %>% filter(analyze_business!="" & RPython!="") %>% count(RPython)
+machine_learning <- mc %>% filter(machine_learning!="" & RPython!="") %>% count(RPython)
+prototype <- mc %>% filter(prototype!="" & RPython!="") %>% count(RPython) 
+infrastructure <- mc %>% filter(build_infrastructure!="" & RPython!="") %>% count(RPython) 
+research <- mc %>% filter(research_ml!="" & RPython!="") %>% count(RPython) 
+
+bml <- bind_rows(list("influence business decisions"=business, "operational machine learning"=machine_learning, "machine learning new areas" = prototype, "build data infrastructure"=infrastructure, "machine learning research"=research), .id="id")
+
+bml %>%
+        ggplot(aes(x=id, y=n, fill=RPython)) +
+        geom_bar(stat="identity", position="fill") +
+        scale_y_continuous(labels=percent) +
+        labs(x="", y="") + coord_flip() +
+        theme(legend.position = "bottom", legend.title=element_blank())
+```
+
+#Languages used most often
+
+Especially in the last graph of the previous section, the large chunck consisting of "Python & R" became dissatisfying. Fortunately, there was also the question: What specific programming language do you use most often?
+
+Altogether, we had 17,131 respondents using R, Python, or both. Below, we can conclude:
+
+* There are 10,446 respondents using Python-only. Only 8,180 mention Python as their most-used language, which means that some Python guys are using another language more often (such as SQL or Java) or did not answer the question.
+* There are only 1,420 R-only users. However, 2,046 respondents mentioned R as their most-used language. This must mean that at least some of the "Python & R" users must have R as their clear favourite! Personal note: I feel that this is consistent with the "production" of some of the top Kaggle-kernelers. For instance: Heads or Tails has done all of his kernels with R, except for one Python kernel.
+
+```{r}
+df <-mc %>% count(most_often)
+
+df%>% filter(most_often!="") %>%
+        ggplot(aes(x=reorder(most_often, n), y=n)) +
+        geom_bar(stat="identity", fill="blue") + coord_flip(y=c(0, 9500)) +
+        geom_text(aes(label=n), hjust=-0.1) +
+        labs(x="", y="Number of Respondents")
+```
+
+##A full breakdown of the most used languages by category (R, Python, Both)
+
+The figure below shows a full breakdown of the overall figures plotted in section 3.1! The most intesting observations are perhaps that:
+
+* Most respondents who indicated that Python is the language that they use the most don’t use R regularly as well (blue area in Python is bigger than blue area in Python & R).
+* Most respondents who indicated that R is the language that they use the most use Python on a regular basis too (purple area in Python & R is bigger than purple area in R-only).
+* Of the respondents who use both Python & R on a regular basis, most people have Python as the language that they use the most (compare purple and blue areas in Python & R). However, this difference is much smaller than the difference between Kagglers only using R or Python.
+
+```{r, fig.height=6, out.width="100%"}
+language_preference <- mc %>% select(RPython, most_often) %>%
+        group_by(RPython) %>%
+        count(most_often) %>%
+        ungroup()
+
+levels(language_preference$most_often)[1] <- "Not answered"
+
+colourCount = length(unique(language_preference$most_often))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+c1 <- language_preference %>% filter(RPython!="") %>%
+        ggplot(aes(x=RPython, y=n, fill=most_often)) +
+        geom_bar(stat="identity") + labs(x="Regular use", y="Count most often") +
+        scale_fill_manual(values = getPalette(colourCount))
+c2 <- language_preference %>% filter(RPython!="") %>%
+        ggplot(aes(x=RPython, y=n, fill=most_often)) +
+        geom_bar(stat="identity", position="fill") + labs(x="Regular use", y="Percent most often") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        theme(legend.position = "none") +
+        scale_y_continuous(label=percent)
+
+grid.arrange(c1, c2, widths=c(1.5,1), nrow=1)
+```
+
+#Machine Learning and Deep learning
+
+##The overall usage of Machine Learning Libraries
+
+Question: "What machine learning frameworks have you used in the past 5 years? (Select all that apply)
+This question was answered by 18697 respondents (a little less than the 18828 who answered the question regarding the regular use of Python, R or other languages).
+
+Below, you can see the total figures by package. I think that the main message here is that the Deep Learning packages, which are very Python oriented (although Keras and Tensorflow are also released for R), are used more often than packages such as randomForest, XGBoost and LighGBM, which are also used often by R-users. Therefore, Deep Learning seems to push Kagglers into using Python.
+
+```{r, warning=FALSE}
+ml_columns <- c("tensorflow", "keras", "pytorch", "caret", "scikit", "spark", "h2o", "fast_ai", "mxnet", "xgboost", "mlr", "prophet", "random_forest", "lightgbm", "catboost", "cntk", "caffe", "no_ml_packages")
+
+ml <- mc %>% select(!!ml_columns) %>% gather(key=package) %>%
+        group_by(package) %>% count(value) %>% filter(value!="")
+
+ml %>%
+        ggplot(aes(x=reorder(value, n), y=n)) +
+        geom_bar(stat="identity", fill="blue") + coord_flip(y=c(0, 13000)) +
+        geom_text(aes(label=n), hjust=-0.1) +
+        labs(x="", y="Number of Respondents")
+```
+
+##Most used ML packages by R-users, Python-users, and users of both Python and R
+
+Question: "Of the choices that you selected in the previous question, which ML library have you used the most?
+
+This means that respondents could only select one package; their favourite, most used package. I have mapped those packages with the R/Python/Both categories.
+
+As expected scikit-learn is the most used ML package among Python-only users, but Tensorflow and Keras are also favourites of a lot by Python-Kagglers. Of the R-only respondents, Caret, Random Forest, and XgBoost are the packages most used. "No selection" means that the respondent used no Machine Learning packages (see "None" in previous section, 2918 respondents), or that the question was not answered.
+
+Within the group "Python & R", we also see that Scikit_learn is used much more than Caret.
+
+```{r, fig.height=6, out.width="100%"}
+ml <- mc %>% select(RPython, ml_most_used) %>%
+        group_by(RPython) %>%
+        count(ml_most_used) %>%
+        ungroup()
+
+levels(ml$ml_most_used)[1] <- "No selection"
+
+colourCount = length(unique(ml$ml_most_used))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+c1 <- ml %>% filter(RPython!="") %>%
+        ggplot(aes(x=RPython, y=n, fill=ml_most_used)) +
+        geom_bar(stat="identity") + labs(x="", y="") +
+        scale_fill_manual(values = getPalette(colourCount))
+c2 <- ml %>% filter(RPython!="") %>%
+        ggplot(aes(x=RPython, y=n, fill=ml_most_used)) +
+        geom_bar(stat="identity", position="fill") + labs(x="", y="") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        theme(legend.position = "none") +
+        scale_y_continuous(label=percent)
+
+grid.arrange(c1, c2, widths=c(1.5,1), nrow=1)
+```
+
+#Visualization
+
+##The overall usage of Visualization Libraries
+
+Question: What data visualization libraries or tools have you used in the past 5 years? (Select all that apply)
+This question was answered by 18593 respondents (a little less than the 18828 who answered the question regarding the regular use of Python, R or other languages).
+
+When stands out most for me here is that even more people have used ggplot than R (7751 vs 6685)! This sounds a bit strange, but might have the following reasons:
+
+* subtile differences in the questions. Regarding the language usage the question was if a respondent uses the language **regularly**, while the question regarding the libaries was if a respondent has used a package **in the past 5 years**. Having used a package in the past 5 years does not necessarily mean regular use.
+* although I am not seen anyone using it yet on Kaggle, [ggplot is also available for Python](https://www.r-bloggers.com/ggplot2-style-plotting-in-python/)
+
+```{r, warning=FALSE}
+viz_columns <- c("ggplot", "matplotlib", "altair", "shiny", "d3", "plotly", "bokeh", "seaborn", "geoplotlib", "leaflet", "lattice", "no_viz_libraries")
+
+viz <- mc %>% select(!!viz_columns) %>% gather(key=package) %>%
+        group_by(package) %>% count(value) %>% filter(value!="")
+
+viz %>%
+        ggplot(aes(x=reorder(value, n), y=n)) +
+        geom_bar(stat="identity", fill="blue") + coord_flip(y=c(0, 14000)) +
+        geom_text(aes(label=n), hjust=-0.1) +
+        labs(x="", y="Number of respondents")
+```
+
+##Most used visualization packages by R-users, Python-users, and users of both Python and R
+
+Question: Of the choices that you selected in the previous question, which specific data visualization library or tool have you used the most?
+
+I think that the most interesting observation here is that of respondents who use both Python and R regularly, ggplot is used slightly more often the most used library than matplotlib, despite respondents in this category using Python more often than R in general. Ggplot is known for being better at visualizations that its Python equivalents, and therefore this relative high percentage of respondents having ggplot as their most used (favoutite) visualization library makes a lot of sense. I think the most likely reason for the most_used percentage for ggplot not being higher in this category is that if people in the "Python & R" category choose Python for machine learning and make a lot of machine learning scripts, they cannot use ggplot in those scripts.
+
+"No selection" means that the respondent used no visualization packages (see "None" in previous section, 1921 respondents), or that the question was not answered.
+
+```{r, fig.height=6, out.width="100%"}
+vz <- mc %>% select(RPython, viz_lib_used_most) %>%
+        group_by(RPython) %>%
+        count(viz_lib_used_most) %>%
+        ungroup()
+
+levels(vz$viz_lib_used_most)[1] <- "No selection"
+
+colourCount = length(unique(vz$viz_lib_used_most))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+c1 <- vz %>% filter(RPython!="") %>%
+        ggplot(aes(x=RPython, y=n, fill=viz_lib_used_most)) +
+        geom_bar(stat="identity") + labs(x="", y="") +
+        scale_fill_manual(values = getPalette(colourCount))
+c2 <- vz %>% filter(RPython!="") %>%
+        ggplot(aes(x=RPython, y=n, fill=viz_lib_used_most)) +
+        geom_bar(stat="identity", position="fill") + labs(x="", y="") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        theme(legend.position = "none") +
+        scale_y_continuous(label=percent)
+
+grid.arrange(c1, c2, widths=c(1.5,1), nrow=1)
+```
+
+#Education
+
+Question: What is the highest level of formal education that you have attained or plan to attain within the next 2 years? This question was answered by 23439 respondents.
+
+##Degrees of the survey respondents
+
+We can see that close to half of the respondents have a Master's degree (10855/23439=46%), and that the percentage of people with a PhD is also relatively high (3357/23439=14%). I am not surprised to see this, as Data Science requires well educated people. Actually, in most job postings in the Netherlands, Master or PhD is preferred.
+
+```{r}
+df <-mc %>% filter(degree!="") %>% count(degree)
+#levels(df$degree)[1] <- "No answer"
+
+df %>%
+        ggplot(aes(x=reorder(degree, n), y=n)) +
+        geom_bar(stat="identity", fill="blue") + coord_flip(y=c(0, 15000)) +
+        geom_text(aes(label=n), hjust=-0.1) +
+        labs(x="", y="Number of Respondents")
+```
+
+##Degrees distribution within the R, Python, and Both groups
+
+I personally expected lots of Master degree's and PhD especially among R-users, as R is used extensively in the academic world. As you can see, the percentage of Master's and PhD's is higher among R-users when compared to the Python only group. Another reason for this could be that Python-users are generally a little younger. The youngest respondents are simply too young to obtain a Master's or PhD within the next 2 years.
+
+```{r, out.width="100%"}
+degree <- mc %>% select(RPython, degree) %>%
+        group_by(RPython) %>%
+        count(degree) %>%
+        ungroup()
+
+degree_levels <- c("Doctoral degree", "Master’s degree", "Bachelor’s degree", "Professional degree", "Some college/university study without earning a bachelor’s degree", "No formal education past high school", "I prefer not to answer", "")
+Encoding(degree_levels) <- "UTF-16" #Having some encoding issues on my laptop (not on Kaggle)!
+degree$degree <- factor(degree$degree, levels=degree_levels)
+levels(degree$degree)[8] <- "Nothing selected"
+
+degree %>% filter(RPython!="") %>%
+        ggplot(aes(x=RPython, y=n, fill=degree)) +
+        geom_bar(stat="identity", position= "fill") + labs(x="", y="") +
+        scale_y_continuous(labels=percent) +
+        scale_fill_brewer(palette = "Set1") +
+        coord_flip() +
+        theme(legend.position="bottom", legend.title = element_blank()) +
+        guides(fill=guide_legend(nrow=5,byrow=TRUE))
+```
+
+#Who earn more money?
+
+##Overall distibution of Salaries of the US Kagglers
+
+Question: What is your current yearly compensation (approximate $USD)?
+This question was answered by 20186 respondents.
+
+As I want to compare "apples to apples only", I have only taken respondents from the largest country into consideration. Also, as students don't have a full-time job yet, I have taken them out of the equation.
+
+Altogether, 2983 respondents from the US gave a salary indication. Below, you can see that there are some low salaries of which I assume that these people could probably work part-time only. The most common values are between 100k and 200k USD. To me, being a non-US citizen, these mode salaries feel very high but this is what the numbers say!
+
+```{r}
+salary_buckets <- c("0-10,000", "10-20,000", "20-30,000", "30-40,000", "40-50,000", "50-60,000", "60-70,000", "70-80,000", "80-90,000", "90-100,000", "100-125,000", "125-150,000", "150-200,000", "200-250,000", "250-300,000", "300-400,000", "400-500,000", "500,000+", "I do not wish to disclose my approximate yearly compensation", "")
+
+mc$salary <- factor(mc$salary, levels=salary_buckets)
+levels(mc$salary)[20] <- "No selection"
+
+mc %>% filter(!salary %in% c("I do not wish to disclose my approximate yearly compensation", "No selection") & country=="United States of America" & industry!="I am a student") %>% count(salary) %>%
+        ggplot(aes(x=salary, y=n)) +
+        geom_bar(stat="identity", fill="blue") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        labs(x="US Salary", y="Number of Respondents")
+```
+
+##US Salaries by R/Python/Both
+
+Of those 2983 respondents, 2457 are regular users of R of Python (the difference comes from either respondents that have indicated their salary but not answered the regular language use question, or respondents that indicated that they are not regular users of R or Python): 
+
+* 1214 Python-only users
+* 950 Python & R users
+* 293 R-users
+
+The graphs have very similar shapes, and due to the small sample sizes, especially the significance of the R-only graph below seems questionable. Probably the most visible difference is that R-only users seem to earn salaries between 40k-90k more often (which is below average in the US). However, if this difference is statistically significant at all, I think the roles that the respondents have (data analyst/scientist ect) or the sector in which people work might have stronger correlations with salary than the programming language used. Will look into this in the next section.
+
+```{r, out.width="100%", warning=FALSE}
+by_salary <- mc %>%
+        filter(!salary %in% c("I do not wish to disclose my approximate yearly compensation", "No selection")
+        & country=="United States of America" & industry!="I am a student" & RPython!="") %>%
+        group_by(salary) %>% count(RPython)
+
+by_salary_table <- by_salary %>% spread(key=salary, value=n)
+by_salary_table[is.na(by_salary_table)] <- 0
+by_salary_table$total <- rowSums(by_salary_table[,2:19])
+by_salary_table <- by_salary_table %>% column_to_rownames(var="RPython")
+
+salary_pct <- by_salary_table %>% select(-total)
+#for (i in 1:nrow(salary_pct)) salary_pct[i,] <- round((salary_pct[i,]/sum(salary_pct[i,]))*100, 1)
+for (i in 1:nrow(salary_pct)) salary_pct[i,] <- salary_pct[i,]/sum(salary_pct[i,])
+
+salary_pct <- salary_pct %>% rownames_to_column() %>% rename(RPython=rowname) %>% gather(key=salary, value=value, "0-10,000": "500,000+")
+
+salary_buckets <- c("0-10,000", "10-20,000", "20-30,000", "30-40,000", "40-50,000", "50-60,000", "60-70,000", "70-80,000", "80-90,000", "90-100,000", "100-125,000", "125-150,000", "150-200,000", "200-250,000", "250-300,000", "300-400,000", "400-500,000", "500,000+")
+
+salary_pct$salary <- factor(salary_pct$salary, levels=salary_buckets)
+
+salary_pct %>%
+        ggplot(aes(x=salary, y=value, color=RPython, group=RPython)) +
+        geom_line() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        labs(x="US Salary", y="Percent") +
+        scale_y_continuous(labels=percent)
+```
+
+##US Salaries by current role
+
+Here we see that of the three roles with most respondents:
+
+* Data Analysts mostly earn up to $90,000
+* Data Scientists mostly earn at least $70,000
+* Software engineers can earn anything (the percentage blocks remain reasonably constant)
+
+```{r, out.width="100%", fig.height=6}
+us_role <- mc %>% filter(!salary %in% c("I do not wish to disclose my approximate yearly compensation", "No selection") & country=="United States of America" & current_role!="Student") %>%
+        count(salary, current_role)
+
+colourCount = length(unique(us_role$current_role))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+us_role %>%
+        ggplot(aes(x=salary, y=n, fill=current_role)) +
+        geom_bar(stat="identity", position="fill") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        labs(x="US Salary", y="Percent") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        scale_y_continuous(labels=percent)
+```
+
+##US Salaries by industry
+
+Here, the most eye cathing observation is that most low-end salaries are paid in Academics/Education. Most high-end salaries are paid in Computers/Technology.
+
+```{r, out.width="100%", fig.height=6}
+us_industry <- mc %>% filter(!salary %in% c("I do not wish to disclose my approximate yearly compensation", "No selection") & country=="United States of America" & industry!="I am a student") %>%
+        count(salary, industry)
+
+colourCount = length(unique(us_industry$industry))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+us_industry %>%
+        ggplot(aes(x=salary, y=n, fill=industry)) +
+        geom_bar(stat="identity", position="fill") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        labs(x="US Salary", y="Percent") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        scale_y_continuous(labels=percent)
+```
+
+#Kmodes clustering
+
+Since this survey contains almost only categorical variables (even age is binnen into categories), Kmodes seems more appropriate than Kmeans.
+
+Since a lot of surveys were not completed, I only selected the surveys for which Q48 was answered (Q49 en Q50 are questions with an "select all that apply" structure, which I assume means that a respondent also could have selected nothing). In addition, I am also only focusing on respondents who at least use R or Python regularly. Altogether, this leads to 12612 respondents that I want to cluster.
+
+```{r}
+mc1 <- mc %>% filter(RPython!="" & Q48 != "")
+dim(mc1)
+```
+
+In addition, I decided to not take a variables into account but to focus on some overall categories and the machine learning and visualization libraries used in the past 5 years.
+
+```{r}
+mc1 <- mc1 %>% select(RPython, industry, current_role, degree, most_often, !!viz_columns, !!ml_columns)
+mc1 <- droplevels(mc1)
+mc2 <- as.data.frame(mc1)
+```
+
+##The six clusters and their associated modes
+
+The number of clusters is a bit arbitraty, and after experimenting with it, I liked the granularity of kmodes=6. The cluster sizes are between 909 and 3505 respondents.
+
+```{r}
+set.seed(123)
+survey_clusters <- kmodes(mc2, modes=6, weighted = FALSE)
+survey_clusters$size
+```
+
+This led to 3 clusters with a Python-only mode, 2 cluster with "Python & R as the mode", and also a cluster with an R-only mode. The modes of the variables current industry, current role, degree, and language used most often are shown in the table below.
+
+```{r}
+kable(survey_clusters$modes[,1:5]) %>%
+        kable_styling(full_width=TRUE)
+```
+
+----
+
+The question about the visualization libraries used in the past 5 years, was a question with the "select all that apply" structure. This means that for each visualization library shown in the table below, there were only two options: selected or not selected. Therefore: 
+
+* If the mode is "blank" in this table, the majority of the respondents did not use the package
+* If the mode is the name of the package, the majority of the respondents did use the package
+
+In the table below, I have only shown the visualization libraries for which at least the mode of one of the clusters is not blank. In my opinion, the most interesting observation here is that a majority of the Data Scientists in cluster 4 apparently also make R-Shiny apps.
+
+Note: the mode "ggplot" in cluster 2 may seem strange at first sight. However, this cluster also contains a significant number of Python & R users. This combined with the reasons mentioned in section 10.1 for the relatively high ggplot numbers compared to the regular use of R (having used a library in the past 5 years does not necessarily mean regular use, and ggplot is also released for Python) makes this possible.
+
+```{r}
+viz_col_kmodes <- c("RPython", "ggplot", "matplotlib", "shiny", "plotly", "seaborn")
+kable(survey_clusters$modes[,viz_col_kmodes]) %>%
+        kable_styling(full_width=TRUE)
+```
+
+----
+
+The question about the machine learning libraries used in the past 5 years, also had a "select all that apply" structure. Again, I have only shown the libraries for which at least the mode of one of the clusters is not blank.
+
+You can see that in all clusters with "Data scientist" as the mode of the current role (clusters 2, 3, and 4), a majority has used Deep Learning libraries in the past 5 years (Tensorflow and Keras). As these libraries are very Python oriented and the mode of the language used most often for these clusters is also Python, I believe this confirms my idea that Deep Learning pushes Kaggle Data Scientists towards Python.
+
+In the R-only cluster (with "Data Analyst as the current role mode"), there is not one single machine learning library that a majority of the respondents in the cluster has used in the past 5 years. However, this does not mean that these respondents do not use machine learning. It only means that each of those libraries was used by less than 50% of the respondents.
+
+```{r}
+ml_cols_kmodes <- c("RPython", "tensorflow", "keras", "caret", "scikit", "xgboost", "random_forest", "lightgbm")
+kable(survey_clusters$modes[, ml_cols_kmodes]) %>%
+        kable_styling(full_width=TRUE)
+```
+
+----
+
+##Deeper analyis of the clusters by variable
+
+Now, I can easily add the cluster assignment to the dataframe and make some more detailed visualizations.
+
+###Regular usage of R, Python, or Both
+
+Some observations:
+
+* Python-only is dominant in the first 3 clusters.
+* In cluster 4 (with Data Scientist as the mode current role) and cluster 6 (with Data Analyst as the mode), Python & R is dominant. Actually in cluster 4, there is slightly more R-usage (R-only is a little bigger than Python-only).
+* In cluster 5 (mode is Data Analyst), the mode (R-only) is less overwhelming. There are also many Python & R respondents, and some Python-only respondents.
+
+```{r}
+mc2 <- cbind(mc2, survey_clusters$cluster)
+mc2 <- mc2 %>% rename(cluster="survey_clusters$cluster")
+mc2$cluster <- as.factor(mc2$cluster)
+
+mc2 %>%
+        ggplot(aes(x=cluster, fill=RPython)) +
+        geom_bar(position="fill") +
+        scale_y_continuous(labels=percent) +
+        labs(y="Percent")
+```
+
+###Current industry
+
+Regarding the industry that the respondents are currently working in, we see that:
+
+* The percentage of students (which is also the mode in cluster 1) is much higher in cluster 1 than in the other 5 clusters
+* The mode in cluster 2-6 is "Computers/Technology". However, these modes are a minority of the respondents in each of those clusters. Especially in clusters 5 and 6, this mode is relatively small with about 20% of respondents.
+
+```{r, out.width="100%"}
+colourCount = length(unique(mc2$industry))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+mc2 %>% count(cluster, industry) %>%
+        ggplot(aes(x=cluster, y=n, fill=industry)) +
+        geom_bar(stat="identity", position="fill") + labs(x="", y="", title="Industry") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        scale_y_continuous(label=percent) +
+        theme(legend.position="right", legend.title = element_blank()) +
+        guides(fill=guide_legend(ncol=2))
+```
+
+###Current role
+
+Regarding the current role, we see that:
+
+* Students are the clear mode in cluster 1 (which is consistent with the previous section)
+* Data scientists are the clear mode in clusters 2 and 4
+* While Data Scientist is also the mode cluster 3, this mode is smaller than in clusters 2 and 4. Software Engineers also account for a large chunk in cluster 3.
+* While Data Analyst is the mode in clusters 5 and 6, the current roles in these clusters are probably better described as a mixed bag. The Data Analyst modes are relatively small, and these clusters also contain significant numbers of other roles.
+
+```{r, out.width="100%"}
+colourCount = length(unique(mc2$current_role))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+mc2 %>% count(cluster, current_role) %>%
+        ggplot(aes(x=cluster, y=n, fill=current_role)) +
+        geom_bar(stat="identity", position="fill") + labs(x="", y="", title="Current role") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        scale_y_continuous(label=percent) +
+        theme(legend.position="right", legend.title = element_blank()) +
+        guides(fill=guide_legend(ncol=2))
+```
+
+###Degree
+
+* Cluster 1 contains the lowest percentages of Master/Doctoral degrees. The most likely reason seems the high percentage of students in this cluster.
+* Cluster 4 contains the highest percentage of Master/Doctoral Degrees.
+
+```{r, out.width="100%"}
+colourCount = length(unique(mc2$degree))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+mc2 %>% count(cluster, degree) %>%
+        ggplot(aes(x=cluster, y=n, fill=degree)) +
+        geom_bar(stat="identity", position="fill") + labs(x="", y="", title="Degree") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        scale_y_continuous(label=percent) +
+        theme(legend.position="bottom", legend.title = element_blank()) +
+        guides(fill=guide_legend(nrow=4, byrow = TRUE))
+```
+
+###Language used most often
+
+When comparing this graph with the one on "Regular usage of R, Python, or Both", I am seeing no major surprises here. Probably the most interesting additional observation is that percentage of SQL is larger in cluster 5 and 6 (which both have Data Analyst as the mode).
+
+```{r, out.width="100%"}
+colourCount = length(unique(mc2$most_often))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+mc2 %>% count(cluster, most_often) %>%
+        ggplot(aes(x=cluster, y=n, fill=most_often)) +
+        geom_bar(stat="identity", position="fill") + labs(x="", y="", title="Language used most often") +
+        scale_fill_manual(values = getPalette(colourCount)) +
+        scale_y_continuous(label=percent) +
+        theme(legend.position="right", legend.title = element_blank()) +
+        guides(fill=guide_legend(ncol=2))
+```
+
+###Visualization libraries used in the past 5 years
+
+*Only the ones that are used by a majority (the mode is not "blank") in at least one of the clusters.*
+
+* ggplot is used by a big majority in all clusters with R or "R & Python" as the mode. Possible explanations of the high usage in cluster 2 are already discussed in section 13.2
+* matplotlib is used by a vast majority in all clusters, except for the R-oriented cluster 5
+* shiny is used a lot in cluster 4 (R & Python, mode is Data Scientist). However, the usage of Shiny in clusters 5 and 6 is also not insignificant.
+* plotly is used quite a bit in all clusters. High usage of plotly can be found in clusters 2 and 4 (both have mode Data Scientist).
+* Seaborn is used a lot in all Data Scientist oriented clusters (clusters 2, 3, and 4). The low usage in the R-oriented cluster number 5 should be no surprise.
+
+
+```{r, out.width="100%"}
+plots <- list()
+for(i in viz_col_kmodes) {
+    plots[[i]] <- mc2 %>%
+        ggplot(aes_string(x="cluster", fill=i)) +
+        geom_bar(position="fill") +
+        scale_y_continuous(labels=percent) +
+        labs(y="Percent")
+}
+
+grid.arrange(plots[[2]], plots[[3]], plots[[4]], plots[[5]], plots[[6]])
+```
+
+###Machine learning libraries used in the past 5 years
+
+*Only the ones that are used by a majority (the mode is not "blank") in at least one of the clusters.*
+
+* Both Tensorflow and Keras are used a lot in the Data Scientist oriented clusters (cluster 2, 3, and 4)
+* The usage of both Caret and Scikit-Learn is roughly what we would expect when looking at the regular usage of R and Python in the clusters. However, Scikit-learn is clearly used much more often than Caret. An interesting observation is also that in cluster 5, few people use Caret or Scikit-Learn
+* Regarding the "regular" machine learning algorithms (Random Forest, XGBoost, LighGBM), we see that in the Data Analyst oriented clusters (5 and 6) Random Forest is used most often. In clusters 2 and 4, all regular algorithms are used a lot (with the exception of LightGBM in cluster 4). In clusters 1 and 3, the usage of these algorithms is surprisingly low.
+
+```{r, out.width="100%", fig.height=6}
+plots <- list()
+for(i in ml_cols_kmodes) {
+    plots[[i]] <- mc2 %>%
+        ggplot(aes_string(x="cluster", fill=i)) +
+        geom_bar(position="fill") +
+        scale_y_continuous(labels=percent) +
+        labs(y="Percent")
+}
+
+grid.arrange(plots[[2]], plots[[3]], plots[[4]], plots[[5]], plots[[6]], plots[[7]], plots[[8]], ncol=2)
+```
+

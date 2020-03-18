@@ -1,0 +1,805 @@
+---
+title: "Compare ML methods&Choose Best Prediction&Show Visualization"
+author: "Miri Choi"
+date: "February 24, 2018"
+output:
+  html_document:
+    fig_width: 12
+    fig_height: 8
+    toc: true
+    code_folding: hide
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning=FALSE,message = FALSE)
+options(warn=-1)
+```
+
+
+
+## 1. Intro & Purpose
+Hello, Kagglers! 
+
+This is my first project since I've learned R.
+
+I've been studying R for about a month, but there are still much things that I don't know.
+So I will be pleased if you inform me the new ML techniques!
+
+
+
+I felt hard to learn so many machine learning techniques over the internet.
+I've googled a lot and make summary of it through this project.
+This kernel is a summary of many classification methods!
+
+
+
+I hope this kernel will be helpful to beginner in this area!
+For better understanding each function, I've wrote library right above the function.
+
+
+
+## 2. Data Importing & Cleaning & Inspecting
+### 2-1) Import dataset
+wbcd means 'wisconsin breast cancer data'
+```{r}
+wbcd <- read.csv("../input/data.csv", header=T, stringsAsFactors=F)
+```
+
+
+### 2-2) Remove NULL Data
+```{r}
+wbcd$X <- NULL
+```
+
+### 2-3) Reshape the datasets
+```{r}
+wbcd <- wbcd[,-1]
+wbcd$diagnosis <- factor(ifelse(wbcd$diagnosis=="B","Benign","Malignant"))
+```
+
+### 2-4) Inspect the datasets
+```{r}
+str(wbcd)
+summary(wbcd)
+head(wbcd)
+```
+
+
+
+
+
+
+
+## 3. Analyze the Correlation between variables
+### 3-1) Correlation between each variables {.tabset}
+There are many ways to draw a correalation plot!
+
+For practice, I applied different function to each data (mean, se, worst)
+
+#### Mean
+```{r}
+library(PerformanceAnalytics)
+chart.Correlation(wbcd[,c(2:11)],histogram=TRUE, col="grey10", pch=1, main="Cancer Mean")
+```
+
+#### SE
+```{r}
+library(psych)
+pairs.panels(wbcd[,c(12:21)], ellipses=TRUE, pch=1, lm=TRUE, cex.cor=1, smoother=F, stars = T, main="Cancer SE")
+```
+
+#### Worst
+```{r}
+library(ggplot2)
+library(GGally)
+ggpairs(wbcd[,c(22:31)])+ theme_bw()+
+labs(title="Cancer Worst")+
+theme(plot.title=element_text(face='bold',color='black',hjust=0.5,size=13))
+```
+
+
+
+### 3-2) See the relation between each variables (diagnosis included) {.tabset}
+I think viewing plot with diagnosis included is much more important than combined data[3-1].
+
+```{r}
+library(ggplot2)
+library(GGally)
+```
+
+#### Mean
+```{r}
+ggpairs(wbcd[,c(2:11,1)], aes(color=diagnosis, alpha=0.75), lower=list(continuous="smooth"))+ theme_bw()+
+labs(title="Cancer Mean")+
+theme(plot.title=element_text(face='bold',color='black',hjust=0.5,size=12))
+```
+
+#### SE
+```{r}
+ggpairs(wbcd[,c(12:21,1)], aes(color=diagnosis, alpha=0.75), lower=list(continuous="smooth"))+ theme_bw()+
+labs(title="Cancer SE")+
+theme(plot.title=element_text(face='bold',color='black',hjust=0.5,size=12))
+```
+
+#### Worst
+```{r}
+ggpairs(wbcd[,c(22:31,1)], aes(color=diagnosis, alpha=0.75), lower=list(continuous="smooth"))+ theme_bw()+
+labs(title="Cancer Worst")+
+theme(plot.title=element_text(face='bold',color='black',hjust=0.5,size=12))
+```
+
+
+
+### 3-3) See the ggcorr plot {.tabset}
+By ggcorr, we can see the correlation value more directly than above graph.
+
+#### Mean
+```{r}
+ggcorr(wbcd[,c(2:11)], name = "corr", label = TRUE)+
+  theme(legend.position="none")+
+labs(title="Cancer Mean")+
+theme(plot.title=element_text(face='bold',color='black',hjust=0.5,size=12))
+```
+
+
+#### SE
+```{r}
+ggcorr(wbcd[,c(12:21)], name = "corr", label = TRUE)+
+  theme(legend.position="none")+
+labs(title="Cancer SE")+
+theme(plot.title=element_text(face='bold',color='black',hjust=0.5,size=12))
+```
+
+
+#### Worst
+```{r}
+ggcorr(wbcd[,c(22:31)], name = "corr", label = TRUE)+
+  theme(legend.position="none")+
+labs(title="Cancer Worst")+
+theme(plot.title=element_text(face='bold',color='black',hjust=0.5,size=12))
+```
+
+
+### 3-4) Principal Component Analysis (PCA)
+
+Too many variables can cause problems
+- Increased computer throughput
+- Too complex visualization problems
+- Decrease efficiency by including variables that have no effect on the analysis
+- Make data interpretation difficult
+
+If you see the ggcorr plot above[3-3], high correlation value means it has "multicollinearity" between variables.
+-> Use one main component for model development by reduct the variables with high correlation.
+
+#### 3-4-1) standardization
+PCA uses standardized data so that it can avoid data distortion caused by scale difference
+```{r}
+wbcd_pca <- transform(wbcd)		
+```
+
+#### 3-4-2) correlation analysis
+```{r}
+round(cor(wbcd_pca[,-1]),3)
+```
+
+#### 3-4-3) scatter plot matrix
+```{r}
+plot(wbcd_pca[,-1])
+pairs(wbcd_pca[,-1],panel=panel.smooth,main="Cancer Prediction Attiributes Scatter Plot Matrix")
+```
+
+#### 3-4-4) PCA(Principal Component Analysis)
+```{r}
+wbcd_prcomp <- prcomp(wbcd_pca[,-1])
+summary(wbcd_prcomp)
+```
+
+#### 3-4-5) screeplot
+```{r}
+screeplot(wbcd_prcomp, npcs=4, type="lines")
+```
+
+#### 3-4-6) view the relation of PCA
+```{r}
+print(wbcd_prcomp)
+```
+PC1 is conducted of a.a.a.a.a.a
+PC2 is d.d..d.d.
+
+#### 3-4-7) Biplot
+```{r}
+biplot(prcomp(wbcd_pca[,-1]), cex=c(0.7, 0.8))
+wbcd_pc1 <- predict(wbcd_prcomp)[,1]
+wbcd_pc2 <- predict(wbcd_prcomp)[,2]
+text(wbcd_pc1, wbcd_pc2, labels=wbcd_pca$diagnosis=="Benign","B","M"), cex=0.7, pos=3)
+```
+
+
+
+
+### 3-5) See the Biplot {.tabset}
+```{r}
+library("factoextra")
+```
+
+#### Mean
+```{r}
+my_data <- wbcd[, c(2:11)];
+res.pca <- prcomp(my_data, scale = TRUE)
+fviz_pca_biplot(res.pca, col.ind = wbcd$diagnosis, col="black",
+                palette = "jco", geom = "point", repel=TRUE,
+                legend.title="Charges", addEllipses = TRUE)
+```
+
+#### SE
+```{r}
+my_data <- wbcd[, c(12:21)];
+res.pca <- prcomp(my_data, scale = TRUE)
+fviz_pca_biplot(res.pca, col.ind = wbcd$diagnosis, col="black",
+                palette = "jco", geom = "point", repel=TRUE,
+                legend.title="Charges", addEllipses = TRUE)
+```
+
+
+#### Worst
+```{r}
+my_data <- wbcd[, c(22:31)];
+res.pca <- prcomp(my_data, scale = TRUE)
+fviz_pca_biplot(res.pca, col.ind = wbcd$diagnosis, col="black",
+                palette = "jco", geom = "point", repel=TRUE,
+                legend.title="Charges", addEllipses = TRUE)
+```
+
+
+
+
+## 4. Apply every ML methods and compare each other and choose best fits
+### 4-1) Make test & train dataset for testing classification ML methods
+Shuffle the wbcd data(100%) & Make train dataset(70%), test dataset(30%)
+
+```{r}
+nrows <- NROW(wbcd)
+# set.seed(1)				## fix random value
+index <- sample(1:nrows, 0.7 * nrows)	## shuffle and divide
+
+#train <- wbcd		        	## 569 test data (100%)
+train <- wbcd[index,]			## 398 test data (70%)
+test <- wbcd[-index,]  		        ## 171 test data (30%)
+```
+
+
+### 4-2) Check the proportion of diagnosis (Benign / Malignant) {.tabset}
+#### train
+```{r}
+prop.table(table(train$diagnosis))
+```
+
+#### test
+```{r}
+prop.table(table(test$diagnosis))
+```
+
+
+### 4-3) Apply every ML methods(that I know) to data {.tabset}
+```{r}
+library(caret)
+```
+
+#### C5.0
+```{r}
+library(C50)
+learn_c50 <- C5.0(train[,-1],train$diagnosis)
+pre_c50 <- predict(learn_c50, test[,-1])
+cm_c50 <- confusionMatrix(pre_c50, test$diagnosis)
+cm_c50
+```
+
+
+
+#### C5.0 - Tune
+```{r}
+total_accuracy_c50 <- function(train, test){
+	accuracy1 <- NULL; accuracy2 <- NULL
+	for(i in 1:100){
+ 		learn_imp_c50 <- C5.0(train[,-1],train$diagnosis,trials = i)      
+  		p_c50 <- predict(learn_imp_c50, test[,-1]) 
+  		accuracy1 <- confusionMatrix(p_c50, test$diagnosis)
+  		accuracy2[i] <- accuracy1$overall[1]
+	}
+	accuracy2
+}
+
+a <- total_accuracy_c50(train,test)
+opt_trials <- which(a==max(a))[1]	
+		
+learn_imp_c50 <- C5.0(train[,-1],train$diagnosis,trials=opt_trials)	
+pre_imp_c50 <- predict(learn_imp_c50, test[,-1])
+cm_imp_c50 <- confusionMatrix(pre_imp_c50, test$diagnosis)
+cm_imp_c50
+```
+
+
+
+#### rpart
+```{r}
+library(rpart)
+learn_rp <- rpart(diagnosis~.,data=train,control=rpart.control(minsplit=2))
+pre_rp <- predict(learn_rp, test[,-1], type="class")
+cm_rp  <- confusionMatrix(pre_rp, test$diagnosis)	
+cm_rp
+```
+
+
+
+#### Prune
+```{r}
+learn_pru <- prune(learn_rp, cp=learn_rp$cptable[which.min(learn_rp$cptable[,"xerror"]),"CP"])
+pre_pru <- predict(learn_pru, test[,-1], type="class")
+cm_pru <-confusionMatrix(pre_pru, test$diagnosis)			
+cm_pru
+```
+
+
+
+#### OneR
+```{r}
+library("RWeka")
+learn_1r <- OneR(diagnosis~., data=train)
+pre_1r <- predict(learn_1r, test[,-1])
+cm_1r   <- confusionMatrix(pre_1r, test$diagnosis)
+cm_1r
+```
+
+
+#### JRip
+```{r}
+learn_jrip <- JRip(diagnosis ~ ., data=train)
+pre_jrip <- predict(learn_jrip, test[,-1])
+cm_jrip <- confusionMatrix(pre_jrip, test$diagnosis)		
+cm_jrip
+```
+
+
+
+#### naiveBayes
+```{r}
+library(e1071)
+learn_nb <- naiveBayes(train[,-1], train$diagnosis)
+pre_nb <- predict(learn_nb, test[,-1])
+cm_nb     <- confusionMatrix(pre_nb, test$diagnosis)
+cm_nb
+```
+
+
+
+#### naiveBayes - Tune
+```{r}
+total_accuracy_nb <- function(train, test){
+	library(e1071)
+	library(caret)
+	accuracy1 <- NULL; accuracy2 <- NULL
+	for(i in 1:100){
+ 		learn_imp_nb <- naiveBayes(train[,-1], train$diagnosis, laplace=i)    
+  		p_nb <- predict(learn_imp_nb, test[,-1]) 
+  		accuracy1 <- confusionMatrix(p_nb, test$diagnosis)
+  		accuracy2[i] <- accuracy1$overall[1]
+	}
+	accuracy2
+}
+
+b <- total_accuracy_nb(train,test)
+opt_laplace <- which(b==max(b))[1]
+
+learn_imp_nb <- naiveBayes(train[,-1], train$diagnosis, laplace=opt_laplace)
+pre_imp_nb <- predict(learn_imp_nb, test[,-1])
+cm_imp_nb <- confusionMatrix(pre_imp_nb, test$diagnosis)		
+cm_imp_nb
+```
+
+
+
+#### randomForest
+```{r}
+library(randomForest)
+learn_rf <- randomForest(diagnosis~., data=train, ntree=100, proximity=T)
+pre_rf   <- predict(learn_rf, test[,-1])
+cm_rf    <- confusionMatrix(pre_rf, test$diagnosis)
+cm_rf
+```
+
+
+#### ctree
+```{r}
+library(party)
+learn_ct <- ctree(diagnosis~., data=train, controls=ctree_control(maxdepth=2))
+pre_ct   <- predict(learn_ct, test[,-1])
+cm_ct    <- confusionMatrix(pre_ct, test$diagnosis)
+cm_ct
+```
+
+
+#### KNN
+```{r}
+library(class)
+pre_knn <- knn(train = train[,-1], test = test[,-1], cl = train[,1], k=25, prob=T)
+cm_knn  <- confusionMatrix(pre_knn, test$diagnosis)
+cm_knn
+```
+
+
+#### GBM
+```{r}
+library(gbm)
+test_gbm <- gbm(diagnosis~., data=train, distribution="gaussian",n.trees = 10000,
+                shrinkage = 0.01, interaction.depth = 4, bag.fraction=0.5, train.fraction=0.5,n.minobsinnode=10,cv.folds=3,keep.data=TRUE,verbose=FALSE,n.cores=1)
+best.iter <- gbm.perf(test_gbm, method="cv",plot.it=FALSE)
+fitControl = trainControl(method="cv", number=5, returnResamp="all")
+learn_gbm = train(diagnosis~., data=train, method="gbm", distribution="bernoulli", trControl=fitControl, verbose=F, tuneGrid=data.frame(.n.trees=best.iter, .shrinkage=0.01, .interaction.depth=1, .n.minobsinnode=1))
+pre_gbm <- predict(learn_gbm, test[,-1])
+cm_gbm <- confusionMatrix(pre_gbm, test$diagnosis)
+cm_gbm
+```
+
+
+#### adaBoost
+```{r}
+library(rpart)
+library(ada)
+control <- rpart.control(cp = -1, maxdepth = 14,maxcompete = 1,xval = 0)
+learn_ada <- ada(diagnosis~., data = train, test.x = train[,-1], test.y = train[,1], type = "gentle", control = control, iter = 70)
+pre_ada <- predict(learn_ada, test[,-1])
+cm_ada <- confusionMatrix(pre_ada, test$diagnosis)
+cm_ada
+```
+
+
+#### SVM
+```{r}
+learn_svm <- svm(diagnosis~., data=train)
+pre_svm <- predict(learn_svm, test[,-1])
+cm_svm <- confusionMatrix(pre_svm, test$diagnosis)
+cm_svm
+```
+
+
+#### SVM - Tune
+```{r}
+gamma <- seq(0,0.1,0.005)
+cost <- 2^(0:5)
+parms <- expand.grid(cost=cost, gamma=gamma)	## 231
+
+total_accuracy_svm <- function(train, test){
+	accuracy1 <- NULL; accuracy2 <- NULL
+	for(i in 1:NROW(parms)){ 		
+		learn_svm <- svm(diagnosis~., data=train, gamma=parms$gamma[i], cost=parms$cost[i])
+		pre_svm <- predict(learn_svm, test[,-1])
+		accuracy1 <- confusionMatrix(pre_svm, test$diagnosis)
+  		accuracy2[i] <- accuracy1$overall[1]
+	}
+	accuracy2
+}
+
+c <- total_accuracy_svm(train,test)
+opt_parms <- which(c==max(c))[1]
+
+
+learn_imp_svm <- svm(diagnosis~., data=train, cost=parms$cost[opt_parms], gamma=parms$gamma[opt_parms])
+pre_imp_svm <- predict(learn_imp_svm, test[,-1])
+cm_imp_svm <- confusionMatrix(pre_imp_svm, test$diagnosis)
+cm_imp_svm
+```
+
+
+### 4-4) Visualize to compare the accuracy of all methods
+```{r}
+col <- c("#ed3b3b", "#0099ff")
+par(mfrow=c(3,5))
+fourfoldplot(cm_c50$table, color = col, conf.level = 0, margin = 1, main=paste("C5.0 (",round(cm_c50$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_imp_c50$table, color = col, conf.level = 0, margin = 1, main=paste("Improve C5.0 (",round(cm_imp_c50$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_rp$table, color = col, conf.level = 0, margin = 1, main=paste("RPart (",round(cm_rp$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_pru$table, color = col, conf.level = 0, margin = 1, main=paste("Prune (",round(cm_pru$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_1r$table, color = col, conf.level = 0, margin = 1, main=paste("OneR (",round(cm_1r$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_jrip$table, color = col, conf.level = 0, margin = 1, main=paste("JRip (",round(cm_jrip$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_ct$table, color = col, conf.level = 0, margin = 1, main=paste("CTree (",round(cm_ct$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_nb$table, color = col, conf.level = 0, margin = 1, main=paste("NaiveBayes (",round(cm_nb$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_imp_nb$table, color = col, conf.level = 0, margin = 1, main=paste("Improve NaiveBayes\n(",round(cm_imp_nb$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_knn$table, color = col, conf.level = 0, margin = 1, main=paste("KNN (",round(cm_knn$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_rf$table, color = col, conf.level = 0, margin = 1, main=paste("RandomForest (",round(cm_rf$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_gbm$table, color = col, conf.level = 0, margin = 1, main=paste("GBM (",round(cm_gbm$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_ada$table, color = col, conf.level = 0, margin = 1, main=paste("AdaBoost (",round(cm_ada$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_svm$table, color = col, conf.level = 0, margin = 1, main=paste("SVM (",round(cm_svm$overall[1]*100),"%)",sep=""))
+fourfoldplot(cm_imp_svm$table, color = col, conf.level = 0, margin = 1, main=paste("Improve SVM (",round(cm_imp_svm$overall[1]*100),"%)",sep=""))
+```
+
+
+
+### 4-5) Select a best prediction model according to high accuracy
+```{r}
+opt_predict <- c(cm_c50$overall[1], cm_imp_c50$overall[1], cm_rp$overall[1], cm_pru$overall[1], cm_1r$overall[1], cm_jrip$overall[1], cm_ct$overall[1], cm_nb$overall[1], cm_imp_nb$overall[1], cm_knn$overall[1], cm_rf$overall[1], cm_gbm$overall[1], cm_ada$overall[1], cm_svm$overall[1], cm_imp_svm$overall[1])
+names(opt_predict) <- c("c50","imp_c50","rpart","prune","1r","jrip","ctree","nb","imp_nb","knn","rf","gbm","ada","svm","imp_svm")
+best_predict_model <- subset(opt_predict, opt_predict==max(opt_predict))
+best_predict_model
+```
+
+
+
+
+
+## 5. Prepare Patient data for testing function 
+If you want to make your own new data, 
+make sure your data format is same as below.
+
+### 5-1) Import patient data {.tabset}
+```{r}
+patient <- read.csv("../input/data.csv", header=T, stringsAsFactors=F)
+patient$X <- NULL
+```
+
+#### Malignant patient   	
+```{r}
+M <- patient[19,]   	    	## 19th patient
+M[,c(1,2)]			## Malignant
+```
+
+#### Benign patient
+```{r}
+B <- patient[20,]              	## 20th patient          
+B[,c(1,2)]			## Benign
+```
+
+### 5-2) Delete diagnosis column for testing
+```{r}
+M$diagnosis <- NULL
+B$diagnosis <- NULL
+```
+
+
+## 6. Patient Cancer Diagnosis Prediction Function (use only 1 test data)
+### 6-1) Patient Diagnosis Function
+Use 'Improve SVM Algorithm' as default, Since it's rated as the best predict_model.
+
+```{r}
+cancer_diagnosis_predict <- function(new, method=learn_imp_svm) {
+	new_pre <- predict(method, new[,-1])
+	new_res <- as.character(new_pre)
+	return(paste("Patient ID: ",new[,1],"  =>  Result: ", new_res, sep=""))
+}
+```
+
+### 6-2) Testing Function {.tabset}
+#### Benign test data
+default = improve svm
+```{r}
+cancer_diagnosis_predict(B)			
+```
+
+Use other ML methods
+```{r}
+cancer_diagnosis_predict(B,learn_imp_c50)
+```
+
+#### Malignant test data
+default = improve svm
+```{r}
+cancer_diagnosis_predict(M)
+```
+
+
+
+Use other ML methods
+```{r}			
+cancer_diagnosis_predict(M,learn_imp_c50)	
+```
+
+
+
+
+## 7. Visualize (Probabilty Density Function Graph)
+### 7-1) Create Visualize Function
+```{r visual1}
+cancer_summary <- function(new,data) {
+
+## [a] Reshape the new dataset for ggplot
+library(reshape2)
+m_train <- melt(data, id="diagnosis")
+m_new <- melt(new[,-1])
+
+
+## [b] Variable To Highlight the key factors (geom_vline-RED)
+key_factors <- c("radius_mean","perimeter_mean","area_mean","perimeter_worst",
+                 "texture_worst","radius_worst","symmetry_se","compactness_worst",
+                 "concavity_worst","dimension_worst")
+
+key_col <- ifelse(m_new$variable %in% key_factors,"red","black")
+
+
+## [c] Save mean of Malignant value & colors
+library(dplyr)
+mal_mean <- subset(data, diagnosis=="Malignant", select=-1)
+mal_mean <- apply(mal_mean,2,mean)
+
+library(stringr)
+mal_col <- ifelse((round(m_new$value,3) > mal_mean) & (str_count(m_new$variable, 'worst') < 1), "red", "black")
+
+
+
+## [d] Save titles : Main title, Patient Diagnosis
+
+title <- "Breast Cancer Diagnosis Plot"
+subtitle <- cancer_diagnosis_predict(new)
+
+
+
+## ★[e] View plot highlighting your manual key factor
+library(ggplot2)
+
+res_key <- ggplot(m_train, aes(x=value,color=diagnosis, fill=diagnosis))+
+    geom_histogram(aes(y=..density..), alpha=0.5, position="identity", bins=50)+
+    geom_density(alpha=.2)+
+    scale_color_manual(values=c("#15c3c9","#f87b72"))+
+    scale_fill_manual(values=c("#61d4d6","#f5a7a1"))+
+    geom_vline(data=m_new, aes(xintercept=value), 
+               color=key_col, size=1.5)+
+    geom_label(data=m_new, aes(x=Inf, y=Inf, label=round(value,3)), nudge_y=2,  
+               vjust = "top", hjust = "right", fill="white", color="black")+
+    labs(title=paste(title,"(highlight Key Factors)"), subtitle=subtitle)+
+    theme(plot.title = element_text(face='bold', colour='black', hjust=0.5, size=15))+
+    theme(plot.subtitle=element_text(lineheight=0.8, hjust=0.5))+
+    labs(caption="[Training 569 wisc cancer diagnostic patient data]")+
+    facet_wrap(~variable, scales="free", ncol=5)
+
+
+
+## ★[f] View plots highlighting values above average of malignant patient
+res_mean <- ggplot(m_train, aes(x=value,color=diagnosis, fill=diagnosis))+
+    geom_histogram(aes(y=..density..), alpha=0.5, position="identity", bins=50)+
+    geom_density(alpha=.2)+
+    scale_color_manual(values=c("#15c3c9","#f87b72"))+
+    scale_fill_manual(values=c("#61d4d6","#f5a7a1"))+
+    geom_vline(data=m_new, aes(xintercept=value), 
+               color=mal_col, size=1.5)+
+    geom_label(data=m_new, aes(x=Inf, y=Inf, label=round(value,3)), nudge_y=2,  
+               vjust = "top", hjust = "right", fill="white", color="black")+
+    labs(title=paste(title,"(highlight Above malignant average)"), subtitle=subtitle)+
+    theme(plot.title = element_text(face='bold', colour='black', hjust=0.5, size=15))+
+    theme(plot.subtitle=element_text(lineheight=0.8, hjust=0.5, size=12))+
+    labs(caption="[Training 569 wisc cancer diagnostic patient data]")+
+    facet_wrap(~variable, scales="free", ncol=5)
+
+
+
+## [g] output graph
+res_mean
+#res_key
+
+}
+```
+
+
+### 7-2) Testing Function {.tabset}
+#### Benign
+```{r}
+cancer_summary(B, wbcd)
+```
+
+
+#### Malignant
+```{r}
+cancer_summary(M, wbcd)
+```
+
+
+
+
+## 8. Visualize (Radar)
+### 8-1) Create Visualize Function
+```{r radar}
+cancer_radar <- function(new,data) {
+
+## [a] Radar Function
+coord_radar <- function (theta = "x", start = 0, direction = 1) 
+{
+        theta <- match.arg(theta, c("x", "y"))
+        r <- ifelse(theta == "x", "y", "x")
+        ggproto("CoordRadar", CoordPolar, theta = theta, r = r, start = start, 
+                direction = sign(direction),
+                is_linear = function(coord) TRUE)
+}
+
+
+## [b] Normalize Function -> you can use rescale instead.
+normalize <- function(x) {
+	return((x-min(x))/(max(x)-min(x)))
+}
+
+
+## [c] Get average from Normal(Benign) Data to set standards (Grey area)
+b1 <- subset(data, diagnosis=="Benign", select=-1)
+b2 <- as.data.frame(lapply(b1,normalize))           
+be <- colMeans(b2)
+
+
+## [d] Normalize Patient Data to compare with normal dataset
+p_new <- (new[,-1]-apply(b1,2,min))/(apply(b1,2,max)-apply(b1,2,min))
+max_value <- max(p_new)
+
+
+## [e] Combine Two data (Normal, Patient)
+cc_radar <- rbind(be,p_new)
+cc_radar <- cbind(group=c("Normal","Patient"),cc_radar)
+
+coc <- melt(cc_radar, id="group")
+library(stringr)
+coc$variable <- as.character(coc$variable)
+coc$variable[str_count(coc$variable,'\\_')>1] <- sub('_', '.', coc$variable[str_count(coc$variable,'\\_')>1])
+name <- unlist(strsplit(as.character(coc$variable),"_"))
+
+coc$feature <- name[c(seq(1,length(name),2))]
+coc$type <- name[c(seq(2,length(name),2))]	
+coc$variable <- NULL
+
+df <- coc[order(coc$feature),]
+
+
+## [f] Save titles : Main title, Patient Diagnosis
+title <- "Breast Cancer Diagnosis Radar"
+subtitle <- cancer_diagnosis_predict(new)
+
+
+
+## ★[g] Radar plot
+res <- ggplot(df, aes(x=feature,y=value,group=group,fill=group,color=group))+
+	geom_point()+geom_polygon(alpha=0.3)+coord_radar()+ylim(0,max_value)+
+	scale_color_manual(values=c(NA,"#b10000"))+
+	scale_fill_manual(values=c("#8e8e8e",NA))+
+	facet_wrap(~type)+
+	theme(panel.background=element_rect(fill = "white", colour= NA),
+          panel.border=element_rect(fill = NA, colour="grey50"), 
+     	  panel.grid.major=element_line(colour = "grey90", size = 0.2),
+    	  panel.grid.minor=element_line(colour = "grey98", size = 0.5),
+   	      legend.position="bottom",
+   	      strip.background =  element_rect(fill = "grey80", colour = "grey50"),
+   	      axis.text.y=element_text(colour=NA),
+   	      axis.title.y=element_text(colour=NA),
+   	      axis.ticks=element_line(colour = NA))+
+	      xlab("")+ylab("")+
+	labs(title=title, subtitle=subtitle)+
+    theme(plot.title = element_text(face='bold', colour='black', hjust=0.5, size=15))+
+    theme(plot.subtitle=element_text(lineheight=0.8, hjust=0.5, size=12))+
+    labs(caption="[Training 569 wisc cancer diagnostic patient data]")
+
+
+
+## [h] output graph
+res
+
+}
+```
+
+
+
+### 8-2) Testing Function {.tabset}
+#### Benign
+```{r}
+cancer_radar(B,wbcd)
+```
+
+
+#### Malignant
+```{r}
+cancer_radar(M,wbcd)	
+```
+
+
+
+
+
+# 9. Conclusion
+I can't understand how to tuning ensemble techiniques, So I made my own function to find it (opt~~~function)
+
+I'm still learning and planning to add more details and methods in thie kernel.
+
+If you find my kernel useful, let me know by upvotes, comment and questions :-)
+Thank you for watching!
+
+** PLANNING TO...
+    PCA (dimension reduction) - Biplot explannation

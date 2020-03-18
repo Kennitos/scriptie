@@ -1,0 +1,203 @@
+---
+title: "Rental Listing NY Map"
+author: "Enrique Pérez Herrero - eph.project1500@gmail.com"
+date: "February 9, 2017"
+output: 
+  html_document: 
+    fig_width: 8
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+---
+
+# Summary
+
+It seems wise to recruit someone with this data set, it covers many distinct
+aspects of ML: NLP, Regression, Computer Vision, Sentiment Analysis,
+Geolocation...
+
+This exploration script deals only with maps.
+
+# Loading Packages
+
+```{r, message = FALSE}
+library(jsonlite)
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(ggmap)
+library(knitr)
+```
+
+# Loading training data
+
+```{r}
+KAGGLE <- TRUE
+train_path <- ifelse(KAGGLE, "../input/train.json", "data/train.json")
+```
+
+
+```{r}
+training <- fromJSON(train_path) %>% 
+  bind_rows 
+
+# Keep list variables 
+features <- training$features
+photos <- training$photos
+
+# Remove list variables from data
+training$features <- NULL
+training$photos <- NULL 
+
+# Convert to data.frame
+training <- sapply(training, unlist) %>%
+  data.frame(., stringsAsFactors = FALSE)
+
+# Add removed variables
+training$features <- features
+training$photos <- photos
+
+# Clean memory
+rm(features)
+rm(photos)
+```
+
+# Numerical and Factor Variables
+
+```{r}
+numerical_variables <- c("bathrooms", "bedrooms",
+                         "longitude", "latitude", "price")
+
+training[, numerical_variables] %<>%
+  lapply(., as.numeric)
+
+training$interest_level <- as.factor(training$interest_level)
+```
+
+
+# Extra Feature: Distance to City Center 
+
+You can notice how this density plot changes depending on location of
+"City Center", coords are taken from:
+[Latlog.net, New York City, NY, USA](http://www.latlong.net/place/new-york-city-ny-usa-1848.html)
+
+```{r}
+# New York City Center Coords
+ny_lat <- 40.785091
+ny_lon <- -73.968285
+```
+
+```{r}
+# Alternate New York City Center Coords
+#ny_center <- geocode("new york", source = "google")
+
+# Add Euclidean Distance to City Center
+training$distance_city <-
+  mapply(function(lon, lat) sqrt((lon - ny_lon)^2  + (lat - ny_lat)^2),
+         training$longitude,
+         training$latitude) 
+```
+
+# Plot distance density by `interest_level`
+
+```{r}
+# Discard real state far from City Center
+ny_outliners_dist <- 0.2
+
+ggplot(training[training$distance_city < ny_outliners_dist, ],
+       aes(distance_city, color = interest_level)) +
+  geom_density()
+```
+
+
+
+# NY Map
+
+```{r, eval=FALSE}
+map <- get_googlemap(
+  zoom = 12,
+  # Use Alternate New York City Center Coords
+  center = ny_center %>% as.numeric,
+  maptype = "satellite",
+  sensor = FALSE)
+
+p <- ggmap(map) +
+  geom_point(size = 1,
+             data = training,
+             aes(x = longitude,
+                 y = latitude,
+                 color = interest_level)) +
+  xlab("") +
+  ylab("") +
+  scale_colour_brewer(palette = "Set1")
+
+p
+```
+
+<img src="http://i.imgur.com/aWZoCKQ.jpg">
+
+kaggle server do not allow downloading pics from google so this last code chunk
+is run with `eval=FALSE` and map image is embeded as an html tab 
+
+# Outliers: finding real coords
+
+```{r}
+outliers_addrs <- training[training$longitude == 0 |
+                             training$latitude == 0, ]$street_address
+outliers_addrs
+```
+
+## Addresses are supposed to be in NY
+
+Although, about Irish bands, I'm more of [Thin
+Lizzy](https://www.youtube.com/watch?v=YMDv5u02n2c): some addresses look like if 
+they where from a place _"Where the streets have no name"_
+
+```{r}
+outliers_ny <- paste(outliers_addrs, ", new york")
+```
+
+## Googling for coords
+
+```{r, message = FALSE, eval=FALSE}
+outliers_addrs <- data.frame("street_address" = outliers_addrs)
+
+coords <- sapply(outliers_ny,
+                 function(x) geocode(x, source = "google")) %>%
+  t %>%
+  data.frame %>%
+  cbind(outliers_addrs, .)
+
+rownames(coords) <- 1:nrow(coords)
+# Display table
+kable(coords)  
+```
+
+Please note this table is pasted in markdown because kaggle server does not
+allow to use source from Google in `geocode` function, I recommend to use this
+kernel in your local computer.
+
+|street_address       |lon       |lat      |
+|:--------------------|:---------|:--------|
+|145 28 Street        |-73.99244 |40.74708 |
+|Van Sicklen street   |-73.97504 |40.59679 |
+|219 E 28th           |-73.97982 |40.74179 |
+|1632 Madison Ave     |-73.94847 |40.79576 |
+|41-42 24th St        |-73.94131 |40.75153 |
+|450 East 83rd Street |-73.94899 |40.77399 |
+|247 west 87          |-73.97555 |40.78888 |
+|118 W 109th          |-73.96273 |40.8015  |
+|246 Mott St          |-73.99466 |40.72328 |
+|21 W 106th           |-73.96095 |40.79874 |
+|338 e. 53            |-73.96576 |40.75591 |
+|259 Decatur Street   |-73.93344 |40.68165 |
+
+# Update training set
+
+```{r, eval=FALSE}
+training[training$longitude == 0,]$longitude <- coords$lon
+training[training$latitude == 0,]$longitude <- coords$lat
+```
+
+

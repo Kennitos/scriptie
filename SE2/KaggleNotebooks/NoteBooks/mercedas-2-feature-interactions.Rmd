@@ -1,0 +1,3009 @@
+---
+
+title: 'MercEDAs 2 - feature interactions'
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    fig_width: 7
+    fig_height: 4.5
+    theme: readable
+    highlight: tango
+---
+
+
+
+# Introduction and motivation
+
+
+This is the second part of an ongoing Exploratory Data Analysis for the [Mercedes-Benz Greener Manufacturing](https://www.kaggle.com/c/mercedes-benz-greener-manufacturing) challenge in *R* with *ggplot2* and *tidyverse*.
+
+My [first EDA kernel](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook) for this project explored the individual features and their relation to the target *y* testing times. *Many thanks to everyone who contributed to, commented on, and upvoted the kernel! I thoroughly appreciate your support and encouragement!*
+
+Here, I want to dive deeper into the exploratory potential of the *feature interactions*. By visualising the effects of combining the levels of certain features with levels of other features we can explore the impact of these interactions on the *y* testing times. Ultimately, this can provide a motivation for feature engineering and will show us the ways in which a model can benefit from combining and/or weighting the influence of different features.
+
+I hope that you will benefit from this kernel. As always, any feedback is very welcome.
+
+
+
+# Data preparation
+
+
+## Load libraries and data files
+
+
+```{r, message = FALSE}
+library('ggplot2') # visualization
+library('ggthemes') # visualization
+library('scales') # visualization
+library('grid') # visualisation
+library('gridExtra') # visualisation
+library('dplyr') # data manipulation
+library('readr') # data input
+library('tibble') # data wrangling
+library('lazyeval') # data wrangling
+library('stringr') # string manipulation
+library('forcats') # factor manipulation
+```
+
+
+```{r, echo=FALSE}
+# Define multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+We use the *multiplot* function, courtesy of [R Cookbooks](http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/) to create multi-panel plots.
+
+```{r, message=FALSE, warning=FALSE}
+train <- read_csv('../input/train.csv')
+test  <- read_csv('../input/test.csv')
+```
+
+```{r, message=FALSE, warning=FALSE}
+combine  <- full_join(train, test) # join training & test data
+combine <- combine %>%
+  select(-y,-ID)
+```
+
+For convenience: Separate modified data sets in which all the *X* features are factors.
+
+```{r}
+train_f <- train %>%
+  mutate_at(vars(starts_with("X")), funs(factor))
+test_f <- test %>%
+  mutate_at(vars(starts_with("X")), funs(factor))
+combine_f <- combine %>%
+  mutate_at(vars(starts_with("X")), funs(factor))
+```
+
+
+## Cleaning
+
+Remove zero-variation features from training data:
+
+```{r}
+lsize <- length(train)-2
+levels <- tibble(
+  nr = seq(1,lsize),
+  name = "test",
+  counts = rep(0,lsize)
+)
+
+for (i in seq(3,length(train_f))){
+  levels$name[i-2] <- colnames(train_f)[i]
+  levels$counts[i-2] <- fct_unique(train_f[[i]]) %>% length()
+}
+
+levels %>%
+  filter(counts < 2) %>%
+  count()
+
+zero_var_col <- levels %>% 
+  filter(levels$counts < 2) %>% 
+  select(name)
+print(zero_var_col)
+
+good_var_col <- levels %>% 
+  filter(levels$counts > 1) %>% 
+  select(name)
+
+train <- train %>%
+  select_(.dots = c("ID", "y", good_var_col$name))
+test <- test %>%
+  select_(.dots = c("ID", good_var_col$name))
+```
+
+Remove the outlier:
+
+```{r}
+train <- train %>%
+  filter(y < 250)
+```
+
+
+# Interactions of categorical features *(X0 - X8)*
+
+In this section I will focus on the multi-level categorical features *X0 - X8*. Originally, I had intended to add a study of the binary features later on but this never materialised. I have included binary feature interactions in some parts of this script, though.
+
+
+## Prerequisites
+
+Before we start to combine the levels of different features let's first get a deeper understanding of the individual categorical features and the distribution of their levels.
+
+
+### Comparing train vs test feature levels
+
+Here we will have a look at all the categorical feature levels in the train vs test data.
+
+```{r}
+for (i in seq(3,10)){
+  print(str_c("Feature",
+              colnames(train_f)[i],
+              "in train has these unique",
+              sprintf("%.0f",length(unique(train_f[[i]]))),
+              "values:",
+              sep=" "))
+  print(str_sort(unique(train_f[[i]])))
+
+  print(str_c("Feature",
+              colnames(test_f)[i-1],
+              "in test has these unique",
+              sprintf("%.0f",length(unique(test_f[[i-1]]))),
+              "values:",
+              sep=" "))
+
+  print(str_sort(unique(test_f[[i-1]])))
+
+  print("")
+  print("")
+}
+```
+
+As has been previously noted, there are some feature levels in the *test* data that don't appear in the *train* data and vice versa. The above list illustrates this in a comprehensive way but it's not that easy to parse.
+
+Let's have a look at all the train/test features that are missing in the respective other data set: 
+
+```{r}
+for (i in seq(3,10)){
+  sel <- (str_c(unique(train_f[[i]])) %in% str_c(unique(test_f[[i-1]])))
+  miss_train_test <- str_c(unique(train_f[[i]])[!sel])
+
+  sel <- (str_c(unique(test_f[[i-1]])) %in% str_c(unique(train_f[[i]])))
+  miss_test_train <- str_c(unique(test_f[[i-1]])[!sel])
+
+  print(str_c("For feature",
+              colnames(train_f)[i],
+              "these",
+              length(miss_train_test),
+              "training levels are not in test: <",
+              str_c(miss_train_test, collapse = " "),
+              "> and these",
+              length(miss_test_train),
+              "testing levels are not in train: <",
+              str_c(miss_test_train, collapse = " "),
+              ">.",
+              sep=" "))
+}
+```
+
+We find:
+
+- *X1, X3, X4, X6, and X8* have perfectly matching levels in both train and test data.
+
+- For the other three features, *X0, X2, and X5* there are **always** more test features missing from train than the other way around: *XO*: 6 vs 4; *X2*: 6 vs 5; *X5*: 4 vs 1. Not a huge difference, but since otherwise the train and test data seem remarkably similar (see also below) this consistent discrepancy is at least noteworthy.
+
+- There's not much we can do about the missing test features in train. However, I think that we can probably remove those train features that are missing in test. Even if that reduces the amount of training data I can't see much use in training a model on features it will not encounter in the prediction. Maybe I'm missing something, though. What is your opinion on this question?
+
+
+### Most popular feature levels in train vs test
+
+This is another prerequisite for looking at the combinations of feature levels. Intuitively, I would expect the most frequent levels of the individual features to be very likely to turn up in the most frequent combinations. And if they don't then that would be another useful piece of the puzzle.
+
+Here are the 5 most popular individual feature levels. The ones with the added *y* statistics are of course the training data:
+
+```{r}
+for (col in str_c("X",c(seq(0,6),8))){
+
+  train %>%
+  group_by_(.dots = col) %>%
+  summarise(ct = n(),
+            ymean = mean(y),
+            ysd = sd(y)) %>%
+  arrange(desc(ct)) %>%
+  head(5) %>%
+  print()
+
+  test %>%
+  group_by_(.dots = col) %>%
+  summarise(ct = n()) %>%
+  arrange(desc(ct)) %>%
+  head(5) %>%
+  print()
+
+  print("")
+  print("")
+}
+```
+
+We find:
+
+- I've included *X4* just to double check; but as expected we find that it's a rather boring feature with essentially just one level ("d") in both train and test
+
+- The *X0 and X5* levels are pretty similar in their distribution in general. There is no dominating level. However, level "X0-ak" is notably more frequent in the test data than in the train data, where it is only in second place.
+
+- For *X1, X2, X3* the levels "aa", "as", and "c", respectively, are the most frequent ones in both train/test data sets, which also show very similar behaviour for the next most popular levels.
+
+- *X6* has two levels, "g" and "j", that are almost equally frequent and much more so than the other levels. Again, train and test are very similar.
+
+In summary: we identified the dominant feature levels in *X0 - X8* and found that the train vs test data are very similar in their feature level frequencies.
+
+
+### Visualising the feature level frequency distributions
+
+We get a better impression of the different feature level distribution by plotting their barplots re-ordered by frequency. For this we join the train and test data sets to plot them alongside each other:
+
+```{r message = FALSE}
+train_set <- train %>%
+  mutate(set = "train")
+test_set <- test %>%
+  mutate(set = "test")
+combine_set = full_join(train_set,test_set)
+```
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 1", out.width="100%"}
+plot_hist_tt <- function(col, lpos){
+  combine_set %>%
+  select_(.dots = col, "set") %>%
+  group_by_(.dots = col, "set") %>%
+  summarise(ct = n()) %>%
+  arrange(set,desc(ct)) %>%
+  ggplot(aes_string(x = str_c("reorder(",col, ", -ct)"), y = "ct", fill = "set")) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = col, y = "frequency") +
+  theme(legend.position = lpos)
+}
+
+p_x0 <- plot_hist_tt("X0","right")
+p_x1 <- plot_hist_tt("X1","none")
+p_x2 <- plot_hist_tt("X2","none")
+p_x3 <- plot_hist_tt("X3","none")
+p_x5 <- plot_hist_tt("X5","none")
+p_x6 <- plot_hist_tt("X6","none")
+p_x8 <- plot_hist_tt("X8","none")
+
+layout <- matrix(c(1,1,2,3,3,4,5,6,7),3,3,byrow=TRUE)
+multiplot(p_x0, p_x1, p_x2, p_x3, p_x5, p_x6, p_x8, layout=layout)
+```
+
+We find:
+
+- As seen already in the tables, the train and test feature level distributions are very similar, down to the less frequent occurences.
+
+- *X0, X1, X3, and X6* behave similar: their histograms show a gradual decline down to almost zero level. *X0* declines slower than the others.
+
+- *X8* also declines slowly but never reaches zero level. All *X8* levels remain above 100 in frequency.
+
+- *X2* has a very dominating single level ("as") from which the frequency drops significantly to decline more slowly afterwards.
+
+- *X5* initially has the slowest decline in frequency and then suddenly drops from around 200 to almost zero through a "knee" at around 100.
+
+
+Looking at these plots, I'm pretty certain that the different distribution shapes indicate qualitatively different types of features:
+
+- *X0, X1, X3, and X6* seem to roughly follow a sort of Benford or Zipf distribution, with the frequencies dropping in a quasi-powerlaw way.
+
+- *X2* is something between the other features and the boring *X4*, in that it is dominated by a strong feature level. This probably indicates a "standard" car feature setting without a single, obvious alternative.
+
+- *X5* and *X8* are the big question marks. Their distributions look different enough to be characteristic of certain selection processes. If anyone has an idea which kind of processes these could be then I would be very happy to hear it.
+
+
+### Feature level reductions
+
+In addition, we can have a look at the *y* distributions of the most frequent vs the rare features. First of all, let's extract all the feature levels with more than 100 occurences in the training data. 100 is a rather arbitrary number here, picked by looking at the histograms in Fig. 1. (I'm not using the second function here, which selects by frequency relative to the most frequent level. Feel free to try it out.)
+
+```{r}
+cat_rare <- function(f1){
+  dummy <- train %>%
+    group_by_(.dots = f1) %>%
+    count() %>%
+    filter(n < 100) %>%
+    select_(.dots = f1)
+}
+
+cat_rare2 <- function(f1){
+  dummy <- train %>%
+    group_by_(.dots = f1) %>%
+    count()
+  dummy %>%
+    mutate(freq = n / max(dummy$n)) %>%
+    filter(freq < 0.2) %>%
+    select_(.dots = f1)
+}
+
+rare_x0 <- cat_rare("X0")
+rare_x1 <- cat_rare("X1")
+rare_x2 <- cat_rare("X2")
+rare_x3 <- cat_rare("X3")
+rare_x4 <- cat_rare("X4")
+rare_x5 <- cat_rare("X5")
+rare_x6 <- cat_rare("X6")
+rare_x8 <- cat_rare("X8")
+
+train_pop <- train %>%
+  anti_join(rare_x0, by = "X0") %>%
+  anti_join(rare_x1, by = "X1") %>%
+  anti_join(rare_x2, by = "X2") %>%
+  anti_join(rare_x3, by = "X3") %>%
+  anti_join(rare_x4, by = "X4") %>%
+  anti_join(rare_x5, by = "X5") %>%
+  anti_join(rare_x6, by = "X6") %>%
+  anti_join(rare_x8, by = "X8")
+```
+
+Now we overlay their *y* distributions:
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 2", out.width="100%"}
+train_pop %>%
+  ggplot(aes(y)) +
+  geom_density(data = train, aes(y), bw = 1) +
+  geom_density(color="red", fill = "red", alpha = 0.5, bw = 1)
+```
+
+We find:
+
+- In essence there is very little of a difference between the original data set and the one containing only combinations of the top features.
+
+- The four familiar peaks are still there and appear to be of similar widths; except maybe for the 4th one which might be missing part of its right tail
+
+- Even the distribution of the "outliers" above *y == 130* looks similar.
+
+
+Yes, we have reduced the number of observations by 40%:
+
+```{r}
+nrow(train_pop)/nrow(train)
+```
+
+But at the same time we have reduced the number of feature levels significantly. The following set of numbers between 0 and 1 are the counts of the new feature levels divived by the number of original feature levels:
+
+```{r}
+train_pop %>% group_by(X0) %>% count() %>% nrow() / nrow(train %>% group_by(X0) %>% count())
+train_pop %>% group_by(X1) %>% count() %>% nrow() / nrow(train %>% group_by(X1) %>% count())
+train_pop %>% group_by(X2) %>% count() %>% nrow() / nrow(train %>% group_by(X2) %>% count())
+train_pop %>% group_by(X3) %>% count() %>% nrow() / nrow(train %>% group_by(X3) %>% count())
+train_pop %>% group_by(X4) %>% count() %>% nrow() / nrow(train %>% group_by(X4) %>% count())
+train_pop %>% group_by(X5) %>% count() %>% nrow() / nrow(train %>% group_by(X5) %>% count())
+train_pop %>% group_by(X6) %>% count() %>% nrow() / nrow(train %>% group_by(X6) %>% count())
+train_pop %>% group_by(X8) %>% count() %>% nrow() / nrow(train %>% group_by(X8) %>% count())
+```
+
+Of course, I realise that based on this reduced feature set we might not be able to improve our predictions of the test data (since we're removing training data). However, it seems to me that the thing we can improve is our understanding of the problem that Mercedes is interested in answering: namely what causes the width of the 4 peaks. Since the shape of the overall *y* distribution can be adequately described using a reduced feature set, we can conclude that all the rare feature levels add very little additional effect to the widening of the peaks.
+
+
+### Counting unique categorical feature combinations
+
+Let's have a look at how many unique feature level combinations there are for all the *X0 - X8* together:
+
+```{r}
+# unique rows in X0-X8
+dup <- train %>%
+  select(X0:X8) %>%
+  duplicated()
+unq <- train %>%
+  filter(!dup)
+
+dup_test <- test %>%
+  select(X0:X8) %>%
+  duplicated()
+
+unq_test <- test %>%
+  filter(!dup_test)
+
+
+train_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq)),
+                 " unique X0-X8 combinations in the ",
+                 sprintf("%.0f",nrow(train)),
+                 " columns of the training data.")
+
+test_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq_test)),
+                 " unique X0-X8 combinations in the ",
+                 sprintf("%.0f",nrow(test)),
+                 " columns of the testing data.")
+
+print(train_out)
+print(test_out)
+```
+
+We see that about 92% of the training data are made up of unique combinations of *X0-X8* feature levels. In addition, we find that the testing data properties are remarkably similar even though some of the feature levels are different (see above).
+
+
+### Identifying redundant features
+
+In order to keep the number of combinations manageable we want to focus on the most important features within the *X0 - X8*. Those will be the ones that have the most impact on the *y* testing times, versus the other features that add mainly noise.
+
+First of all, we decide to discard feature *X4*, which essentially consists of only 1 factor level:
+
+```{r}
+train %>% group_by(X4) %>% summarise(ct = n(), ymean = mean(y), ysd = sd(y))
+```
+
+*X4-c* might indicate a higher *y* value but with only 1 observation there's certainly not enough significance in such a conclusion. Therefore, we will remove these few observations to get a clearer view.
+
+```{r}
+train <- train %>%
+  filter(X4 == "d")
+```
+
+Next, we check the variation within the individual features levels for significant fluctuations with respect to the *y* statistics. The series of boxplots in the original [MercEDAs kernel](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook) already gave us an idea about this. Here we are diving deeper into the exploration.
+
+Note, that I'm only looking at the feature levels with more than 5 observations in the training data. Since our ultimate aim is to identify feature combinations, it doesn't make much sense to look at the rare levels.
+
+Here we are plotting the *y* mean and standard variation versus the frequency of the levels for each categorical feature.
+
+(As an aside: I'm slowly starting to figure out how to use ggplot2 in loops. One important thing here is that you have to explicitely "print" the resulting plot because the automatic displaying is turned off in a loop.)
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 3a-g", out.width="100%"}
+bar <- train %>%
+  mutate_at(vars(X0:X8), funs(factor)) %>%
+  mutate_at(vars(X0:X8), funs(as.integer))
+
+for (col in str_c("X",c(seq(0,3),seq(5,6),8))){
+
+foo <- bar %>%
+  group_by_(.dots = col) %>%
+  summarise(ymean = mean(y),
+            ysd = sd(y),
+            yerrp = mean(y) + sd(y),
+            yerrn = mean(y) - sd(y),
+            ct = n()) %>%
+  arrange(desc(ct)) %>%
+  filter(ct > 5)
+
+plt <- ggplot(foo) +
+  geom_ribbon(aes_string(x = col, ymin = "yerrn", ymax = "yerrp"), fill = "grey") +
+  geom_line(aes_string(col, "ymean"))
+print(plt)
+}
+```
+
+We find:
+
+- There is no signficant variability within the levels of *X3, X5, and X8*. Within the 1 sigma uncertainties, all the levels have consistent *y* distributions.
+
+- There might be some amount of variation in *X1 and X6*, but except for the later levels of *X1* (which have low numbers of observations) this effect doesn't appear to be significant. Nevertheless, these two features could be included in a second order analysis.
+
+- Only *X0 and X2* appear to show significant variability between their individual factor levels. In the case of *X0* the corresponding 1 sigma contours are remarkably narrow, suggesting that the levels in themselves are relatively homogeneous.
+
+Therefore, we focus on *X0 and X2* as the dominating features. In the next step we examine their combinations in more detail.
+
+
+## *X0 and X2* - feature level combinations
+
+We repeat the combination count for those two features alone:
+
+```{r}
+# unique rows in X0,X2
+dup <- train %>%
+  select(X0,X2) %>%
+  duplicated()
+
+unq <- train %>%
+  filter(!dup)
+
+dup_test <- test %>%
+  select(X0,X2) %>%
+  duplicated()
+unq_test <- test %>%
+  filter(!dup_test)
+
+train_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq)),
+                 " unique X0/X2 combinations in the ",
+                 sprintf("%.0f",nrow(train)),
+                 " columns of the training data.")
+
+test_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq_test)),
+                 " unique X0/X2 combinations in the ",
+                 sprintf("%.0f",nrow(test)),
+                 " columns of the testing data.")
+
+print(train_out)
+print(test_out)
+```
+
+Again, we find that the train and test data are remarkably consistent in the way that the feature combinations are distributed.
+
+In order to work with these feature combinations directly we define a short helper function:
+
+```{r}
+# function to collect outlier combinations in the categorical features
+cat_combined <- function(f1, f2){
+  mutate_call = lazyeval::interp(~ str_c(a,b, sep = "-"), a = as.name(f1), b = as.name(f2))
+
+  train %>%
+    group_by_(.dots = f1, f2) %>%
+    summarise(ct = n(),
+              ymean = mean(y),
+              ysd = sd(y)) %>%
+    mutate_(.dots = setNames(list(mutate_call), "xid")) %>%
+    arrange(desc(ct)) %>%
+    filter(ct >= 10)
+}
+```
+
+Those are the most frequent combinations:
+
+```{r}
+x02_train <- cat_combined("X0","X2")
+head(x02_train,10)
+```
+
+We find:
+
+- The level *X2-as* plays a major role here, as we would have suspected from its dominance of the individual *X2* levels (see above). The second most frequent *X2* level, "ae", albeit far from "as" in frequency, is notably absent in this top 10 here.
+
+- The top 4 *X0* levels are present in a different order and scattered throughout this combined top 10.
+
+Let's look at the histogram of combination frequencies and their impact on the scatter of the *y* values:
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 4a,b", out.width="100%"}
+x02_train %>%
+  ggplot(aes(ct)) +
+  geom_histogram(bins = nrow(x02_train))
+
+x02_train %>%
+  arrange(desc(ymean)) %>%
+  ggplot(aes(ct,ymean)) +
+  geom_ribbon(aes(x = ct, ymin = ymean-ysd, ymax = ymean+ysd), fill = "grey") +
+  geom_line() +
+  scale_x_log10()
+```
+
+We find:
+
+- The histogram shows that there only about a dozen feature combinations with a high frequency of occurence.
+
+- The line plot indicates that combining the *X0 + X2* features preserves some of the variation seen in the individual features.
+
+
+Now, we look at the *y* distributions for the top 12 combinations overlayed on the overall *y* distribution density. This plot will be based on a data set that contains all the individual *y*-values corresponding to the combinations, which we build with another helper function:
+
+```{r}
+# function to collect all y for categorical feature level combinations
+cat_combined_y <- function(combs, f1, f2){
+  foo <- combs %>%
+    head(12)
+  bar <- train %>%
+    select_(f1, f2, "y")
+  left_join(foo, bar, by = c(f1, f2))
+}
+```
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 5", out.width="100%"}
+x02_y <- cat_combined_y(x02_train, "X0", "X2")
+
+x02_y %>%
+  ggplot(aes(y)) +
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+  facet_wrap(~ xid)
+```
+
+In each plot the black line shows the overall *y* density for the full, ungrouped training data and the red density corresponds to the feature combination.
+
+The next plot presents an alternative view to the grid above by using *stacked density estimates*. Personally, I think the grid is a somewhat cleaner representation but I can also see the merits of having everything in one graph. If you would like to see more of these stacked density plots then let me know in the comments.
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 6", out.width="100%"}
+x02_y %>%
+  ggplot(aes(y, fill=xid)) +
+  geom_density(position="stack", bw = 1) +
+  theme(legend.position = "right") +
+  guides(fill = guide_legend(ncol = 1, keywidth = 1, keyheight = 1))
+```
+
+Both plots illustrate that there is great deal of variation between the most frequent *X0-X2* combinations. However, one valid question is how much of this variation is due to *X0* alone.
+
+
+### Checking the impact of combining the two features
+
+From all we have seen so far in this challenge we know that *X0* is the dominating feature and it is to be expected that the effect we are seeing is predominantly caused by *X0*. In order to check whether our feature combinations make any difference we will pick two random, frequent *X0* levels and compare their distributions when combined with the 2 most frequent *X2* levels each. It is not going to be a strong effect, but if it is notable then it might help to improve our models.
+
+We start with *X0-az*:
+
+```{r}
+train %>% select(X0,X2,y) %>% group_by(X0,X2) %>% summarise(ct = n()) %>% filter(X0 == "az") %>% arrange(desc(ct))
+```
+
+Let's compare the impact of the *X2* levels "n" and "as":
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 7", out.width="100%"}
+foo <- train %>%
+  select(X0,X2,y) %>%
+  filter(X0 == "az")
+
+foo %>%
+  ggplot(aes(y)) +
+  geom_density(data = foo %>% filter(X2 == "n"), fill = "red", alpha = 0.5, bw = 1) +
+  geom_density(data = foo %>% filter(X2 == "as"), fill = "blue", alpha = 0.5, bw = 1)
+```
+
+There appears to be a difference in the tails. Now let's look at *X0-ay*:
+
+```{r}
+train %>% select(X0,X2,y) %>% group_by(X0,X2) %>% summarise(ct = n()) %>% filter(X0 == "ay") %>% arrange(desc(ct))
+```
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 8", out.width="100%"}
+foo <- train %>%
+  select(X0,X2,y) %>%
+  filter(X0 == "ay")
+
+foo %>%
+  ggplot(aes(y)) +
+  geom_density(data = foo %>% filter(X2 == "as"), fill = "red", alpha = 0.5, bw = 1) +
+  geom_density(data = foo %>% filter(X2 == "r"), fill = "blue", alpha = 0.5, bw = 1)
+```
+
+
+Again, a notable difference in the tails with a clear peak around *y == 120*.
+
+Feel free to borrow this bit to check other combinations. From what I've seen, I think that we see a difference when considering feature combinations between *X0* and *X2*.
+
+Are these differences significant enough to improve our models? I think they might well be and I'm very curious about your opinion.
+
+
+
+## One step further: testing the impact of *X1* and *X6*
+
+The overviews above suggest that both the *X1* and *X6* features might have a small impact on the testing times distribution. Here we are investigating this possibility following the above approach for both features individually.
+
+
+### Adding *X1*
+
+Number of combinations:
+
+```{r}
+# unique rows in X0,X2,X1
+dup <- train %>%
+  select(X0,X2,X1) %>%
+  duplicated()
+
+unq <- train %>%
+  filter(!dup)
+
+dup_test <- test %>%
+  select(X0,X2,X1) %>%
+  duplicated()
+
+unq_test <- test %>%
+  filter(!dup_test)
+
+train_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq)),
+                 " unique X0/X2/X1 combinations in the ",
+                 sprintf("%.0f",nrow(train)),
+                 " columns of the training data.")
+
+test_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq_test)),
+                 " unique X0/X2/X1 combinations in the ",
+                 sprintf("%.0f",nrow(test)),
+                 " columns of the testing data.")
+
+print(train_out)
+print(test_out)
+```
+
+The most popular combinations:
+
+```{r warning = FALSE, message = FALSE}
+x021_train <- train %>%
+  group_by(X0,X2,X1) %>%
+  summarise(ct = n(),
+            ymean = mean(y),
+            ysd = sd(y)) %>%
+
+  arrange(desc(ct)) %>%
+  mutate(xid = as.factor(str_c(X0,X2,X1, sep = "-"))) %>%
+  filter(ct >= 10)
+
+head(x021_train,10)
+```
+
+Visualising their *y* distributions:
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 9", out.width="100%"}
+foo <- x021_train %>%
+  head(12)
+
+bar <- train %>%
+  select(X0,X2,X1,y)
+
+x021_y <- left_join(foo, bar, by = c("X0", "X2", "X1"))
+
+x021_y %>%
+  ggplot(aes(y)) +
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+  facet_wrap(~ xid)
+```
+
+Testing the impact of *X1* on two examples:
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 10", out.width="100%"}
+foo <- train %>%
+  select(X0,X2,X1,y) %>%
+  filter(X0 == "ak" & X2 == "as")
+
+foo %>%
+  ggplot(aes(y)) +
+  geom_density(data = foo %>% filter(X1 == "l"), fill = "red", alpha = 0.5, bw = 1) +
+  geom_density(data = foo %>% filter(X1 == "s"), fill = "blue", alpha = 0.5, bw = 1)
+```
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 11", out.width="100%"}
+foo <- train %>%
+  select(X0,X2,X1,y) %>%
+  filter(X0 == "ay" & X2 == "as")
+
+foo %>%
+  ggplot(aes(y)) +
+  geom_density(data = foo %>% filter(X1 == "aa"), fill = "red", alpha = 0.5, bw = 1) +
+  geom_density(data = foo %>% filter(X1 == "i"), fill = "blue", alpha = 0.5, bw = 1)
+```
+
+Again, we find that there small-scale deviations in the combinations of certain factor levels that might be worth taking into account for a more accurate prediction of the testing times.
+
+
+### Adding *X6*
+
+Number of combinations:
+
+```{r}
+# unique rows in X0,X2,X6
+dup <- train %>%
+  select(X0,X2,X6) %>%
+  duplicated()
+
+unq <- train %>%
+  filter(!dup)
+
+dup_test <- test %>%
+  select(X0,X2,X6) %>%
+  duplicated()
+
+unq_test <- test %>%
+  filter(!dup_test)
+
+train_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq)),
+                 " unique X0/X2/X6 combinations in the ",
+                 sprintf("%.0f",nrow(train)),
+                 " columns of the training data.")
+
+test_out <- str_c("There are ", 
+                 sprintf("%.0f",nrow(unq_test)),
+                 " unique X0/X2/X6 combinations in the ",
+                 sprintf("%.0f",nrow(test)),
+                 " columns of the testing data.")
+
+print(train_out)
+print(test_out)
+```
+
+The most popular combinations:
+
+```{r warning = FALSE, message = FALSE}
+x026_train <- train %>%
+  group_by(X0,X2,X6) %>%
+  summarise(ct = n(),
+            ymean = mean(y),
+            ysd = sd(y)) %>%
+  arrange(desc(ct)) %>%
+  mutate(xid = as.factor(str_c(X0,X2,X6, sep = "-"))) %>%
+  filter(ct >= 10)
+
+head(x026_train,10)
+```
+
+Visualising their *y* distributions:
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 12", out.width="100%"}
+foo <- x026_train %>%
+  head(12)
+
+bar <- train %>%
+  select(X0,X2,X6,y)
+
+x026_y <- left_join(foo, bar, by = c("X0", "X2", "X6"))
+
+x026_y %>%
+  ggplot(aes(y)) +
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+  facet_wrap(~ xid)
+```
+
+Testing the impact of *X1* on two examples:
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 13", out.width="100%"}
+foo <- train %>%
+  select(X0,X2,X6,y) %>%
+  filter(X0 == "ak" & X2 == "as")
+
+foo %>%
+  ggplot(aes(y)) +
+  geom_density(data = foo %>% filter(X6 == "i"), fill = "red", alpha = 0.5, bw = 1) +
+  geom_density(data = foo %>% filter(X6 == "j"), fill = "blue", alpha = 0.5, bw = 1)
+```
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 14", out.width="100%"}
+foo <- train %>%
+  select(X0,X2,X6,y) %>%
+  filter(X0 == "ay" & X2 == "as")
+
+foo %>%
+  ggplot(aes(y)) +
+  geom_density(data = foo %>% filter(X6 == "d"), fill = "red", alpha = 0.5, bw = 1) +
+  geom_density(data = foo %>% filter(X6 == "j"), fill = "blue", alpha = 0.5, bw = 1)
+```
+
+Also here some fluctuation might be carrying a higher order signal.
+
+
+
+
+
+## Testing the remaining categorical features against each other
+
+
+
+In the following, I will show some overview plots for all combination of two categorical features, except *X4*. In the next version of this kernel I will study some of them in more detail. If you would like to suggest a specific set of combinations for me to check then let me know in the comments.
+
+
+
+
+
+### X0 vs X1
+
+
+
+```{r}
+
+x01_train <- cat_combined("X0", "X1")
+
+head(x01_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 15", out.width="100%"}
+
+x01_y <- cat_combined_y(x01_train, "X0", "X1")
+
+x01_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+### X0 vs X3
+
+
+
+```{r}
+
+x03_train <- cat_combined("X0", "X3")
+
+head(x03_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 16", out.width="100%"}
+
+x03_y <- cat_combined_y(x03_train, "X0", "X3")
+
+
+
+x03_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X0 vs X5
+
+
+
+```{r}
+
+x05_train <- cat_combined("X0", "X5")
+
+head(x05_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 17", out.width="100%"}
+
+x05_y <- cat_combined_y(x05_train, "X0", "X5")
+
+x05_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+### X0 vs X6
+
+
+
+```{r}
+
+x06_train <- cat_combined("X0", "X6")
+
+head(x06_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 18", out.width="100%"}
+
+x06_y <- cat_combined_y(x06_train, "X0", "X6")
+
+
+
+x06_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X0 vs X8
+
+
+
+```{r}
+
+x08_train <- cat_combined("X0", "X8")
+
+head(x08_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 19", out.width="100%"}
+
+x08_y <- cat_combined_y(x08_train, "X0", "X8")
+
+
+
+x08_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X1 vs X2
+
+
+
+```{r}
+
+x12_train <- cat_combined("X1", "X2")
+
+head(x12_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 20", out.width="100%"}
+
+x12_y <- cat_combined_y(x12_train, "X1", "X2")
+
+
+
+x12_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X1 vs X3
+
+
+
+```{r}
+
+x13_train <- cat_combined("X1", "X3")
+
+head(x13_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 21", out.width="100%"}
+
+x13_y <- cat_combined_y(x13_train, "X1", "X3")
+
+
+
+x13_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X1 vs X5
+
+
+
+```{r}
+
+x15_train <- cat_combined("X1", "X5")
+
+head(x15_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 22", out.width="100%"}
+
+x15_y <- cat_combined_y(x15_train, "X1", "X5")
+
+
+
+x15_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+### X1 vs X6
+
+
+
+```{r}
+
+x16_train <- cat_combined("X1", "X6")
+
+head(x16_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 23", out.width="100%"}
+
+x16_y <- cat_combined_y(x16_train, "X1", "X6")
+
+
+
+x16_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X1 vs X8
+
+
+
+```{r}
+
+x18_train <- cat_combined("X1", "X8")
+
+head(x18_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 24", out.width="100%"}
+
+x18_y <- cat_combined_y(x18_train, "X1", "X8")
+
+
+
+x18_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+
+
+### X3 vs X5
+
+
+
+```{r}
+
+x35_train <- cat_combined("X3", "X5")
+
+head(x35_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 25", out.width="100%"}
+
+x35_y <- cat_combined_y(x35_train, "X3", "X5")
+
+
+
+x35_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+### X3 vs X6
+
+
+
+```{r}
+
+x36_train <- cat_combined("X3", "X6")
+
+head(x36_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 26", out.width="100%"}
+
+x36_y <- cat_combined_y(x36_train, "X3", "X6")
+
+
+
+x36_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X3 vs X8
+
+
+
+```{r}
+
+x38_train <- cat_combined("X3", "X8")
+
+head(x38_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 27", out.width="100%"}
+
+x38_y <- cat_combined_y(x38_train, "X3", "X8")
+
+
+
+x38_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X5 vs X6
+
+
+
+```{r}
+
+x56_train <- cat_combined("X5", "X6")
+
+head(x56_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 28", out.width="100%"}
+
+x56_y <- cat_combined_y(x56_train, "X5", "X6")
+
+
+
+x56_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X5 vs X8
+
+
+
+```{r}
+
+x58_train <- cat_combined("X5", "X8")
+
+head(x58_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 29", out.width="100%"}
+
+x58_y <- cat_combined_y(x58_train, "X5", "X8")
+
+
+
+x58_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+### X6 vs X8
+
+
+
+```{r}
+
+x68_train <- cat_combined("X6", "X8")
+
+head(x58_train,5)
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 30", out.width="100%"}
+
+x68_y <- cat_combined_y(x68_train, "X6", "X8")
+
+
+
+x68_y %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+
+
+## The peculiar role of *X5* - a batch ID?
+
+
+
+As other [kernels](https://www.kaggle.com/msp48731/feature-engineering-and-visualization/notebook) and [discussions](https://www.kaggle.com/msp48731/feature-engineering-and-visualization/notebook) have pointed out there is a clear correlation of the *X5* feature levels with the ID numbers, here shown for the combined train and test data:
+
+
+
+```{r fig.align = 'default', message = FALSE, warning = FALSE, fig.cap ="Fig. 31", out.width="100%", }
+
+
+
+full_join(train,test) %>%
+
+  select(ID,X5) %>%
+
+  arrange(desc(ID)) %>%
+
+  ggplot(aes(ID, reorder(X5,ID, FUN = median))) +
+
+  geom_point() +
+
+  labs(y = "X5 - reordered by increasing median ID")
+
+```
+
+
+
+Except for a few [individual IDs](https://www.kaggle.com/c/mercedes-benz-greener-manufacturing/discussion/34949#194234), the *X5* levels coincide perfectly with a sequential ID numbering.
+
+
+
+What could be the reason for this? Maybe the IDs were simply assigned according to a randomly chosen feature and it might has well have been *X0* or *X1* instead. It is notable that we had to reorder the *X5* levels to get this nice step function, but maybe the levels were shuffled after the initial assignment.
+
+
+
+Another possibility is that the *X5* encode batches of some sort; maybe different manufacturing plants or different test benches. In that case, it might be reasonably to assume that when comparing one *X5* level to another we would see similar distributions since the cars are being tested rather than the test benches. (If the benches themselves aren't significantly different, but what would be the point in having 30-ish different bench designs?)
+
+
+
+However, in our feature combinations above we find that different *X5* levels *do* result in notably different *y* distributions for different levels of the other categorical distributions. As an example here are the distributions of *X1-aa* for 9 different levels of *X5*:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 32", out.width="100%"}
+
+x15_y %>%
+
+  filter(X1 == "aa") %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(data = train, aes(y), inherit.aes = FALSE) +
+
+  geom_density(color="red", fill = "red", alpha = 0.5) +
+
+  facet_wrap(~ xid)
+
+```
+
+
+
+Therefore, a batch/bench ID seems not very likely to me.
+
+
+
+
+
+## Identifying feature combinations with the highest percentage of outliers
+
+
+
+In the individual features exploration [kernel](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook) we saw that no single level within the categorical features was associated with a significant fraction of extreme values above *y == 130*. Therefore, we thought it to be likely that these values represent outliers from the otherwise relatively well-defined *y* clusters. Here we investigate whether certain combinations of categorical features might mostly consist of these "outliers".
+
+
+
+In the following, we will group the categorical levels by their combinations, count all outliers (defined as having *y > 130*), and then divide this number by the number of total occurences of this particular combination. This fraction, called *out_frac* in the code, shows how many outliers there are in the feature level combination. We then proceed to plot this fraction against the combined feature names.
+
+
+
+Those are our helper functions:
+
+
+
+```{r}
+
+# function to collect outlier combinations
+
+out_cat_combined <- function(f1, f2){
+
+  mutate_call = lazyeval::interp(~ str_c(a,b, sep = "-"), a = as.name(f1), b = as.name(f2))
+
+  
+
+  train %>%
+
+  mutate(y_out = as.integer(y>130)) %>%
+
+  group_by_(.dots = f1, f2) %>%
+
+  summarise(ct = n(), out_ct = sum(y_out), 
+
+            ymean = mean(y), ysd = sd(y), out_frac = sum(y_out)/(1.*n())) %>%
+
+  mutate_(.dots = setNames(list(mutate_call), "xid")) %>%
+
+  arrange(desc(out_frac),desc(ct))
+
+}
+
+
+
+# function to plot outlier combinations
+
+plot_out <- function(outset, f1, f2){
+
+  outset %>%
+
+  head(20) %>%
+
+  ggplot(aes(ymean, reorder(xid, out_frac), colour = out_frac)) +
+
+  geom_point() +
+
+  labs(y = "Combination IDs", colour = "outlier fraction") +
+
+  scale_colour_continuous(low = "blue", high = "red") +
+
+  ggtitle(str_c(f1,f2, sep = "-"))
+
+}
+
+
+
+```
+
+
+
+Now let's examine the various combinations
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 33", out.width="100%"}
+
+out_x01 <- out_cat_combined("X0","X1")
+
+head(out_x01,10)
+
+plot_out(out_x01, "X0", "X1")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 34", out.width="100%"}
+
+out_x02 <- out_cat_combined("X0","X2")
+
+head(out_x02,10)
+
+plot_out(out_x02, "X0", "X2")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 35", out.width="100%"}
+
+out_x03 <- out_cat_combined("X0","X3")
+
+head(out_x03,10)
+
+plot_out(out_x03, "X0", "X3")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 36", out.width="100%"}
+
+out_x05 <- out_cat_combined("X0","X5")
+
+head(out_x05,10)
+
+plot_out(out_x05, "X0", "X5")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 37", out.width="100%"}
+
+out_x06 <- out_cat_combined("X0","X6")
+
+head(out_x06,10)
+
+plot_out(out_x02, "X0", "X6")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 38", out.width="100%"}
+
+out_x08 <- out_cat_combined("X0","X8")
+
+head(out_x08,10)
+
+plot_out(out_x08, "X0", "X8")
+
+```
+
+
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 39", out.width="100%"}
+
+out_x12 <- out_cat_combined("X1","X2")
+
+head(out_x12,10)
+
+plot_out(out_x12, "X1", "X2")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 40", out.width="100%"}
+
+out_x13 <- out_cat_combined("X1","X3")
+
+head(out_x13,10)
+
+plot_out(out_x03, "X1", "X3")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 41", out.width="100%"}
+
+out_x15 <- out_cat_combined("X1","X5")
+
+head(out_x15,10)
+
+plot_out(out_x15, "X1", "X5")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 42", out.width="100%"}
+
+out_x16 <- out_cat_combined("X1","X6")
+
+head(out_x16,10)
+
+plot_out(out_x16, "X1", "X6")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 43", out.width="100%"}
+
+out_x06 <- out_cat_combined("X0","X6")
+
+head(out_x06,10)
+
+plot_out(out_x06, "X0", "X6")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 44", out.width="100%"}
+
+out_x18 <- out_cat_combined("X1","X8")
+
+head(out_x18,10)
+
+plot_out(out_x18, "X1", "X8")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 45", out.width="200%"}
+
+out_x23 <- out_cat_combined("X2","X3")
+
+head(out_x23,10)
+
+plot_out(out_x23, "X2", "X3")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 46", out.width="200%"}
+
+out_x25 <- out_cat_combined("X2","X5")
+
+head(out_x25,10)
+
+plot_out(out_x25, "X2", "X5")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 47", out.width="200%"}
+
+out_x26 <- out_cat_combined("X2","X6")
+
+head(out_x26,10)
+
+plot_out(out_x26, "X2", "X6")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 48", out.width="200%"}
+
+out_x28 <- out_cat_combined("X2","X8")
+
+head(out_x28,10)
+
+plot_out(out_x28, "X2", "X8")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 49", out.width="300%"}
+
+out_x35 <- out_cat_combined("X3","X5")
+
+head(out_x35,10)
+
+plot_out(out_x35, "X3", "X5")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 50", out.width="300%"}
+
+out_x56 <- out_cat_combined("X5","X6")
+
+head(out_x56,10)
+
+plot_out(out_x56, "X5", "X6")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 51", out.width="300%"}
+
+out_x58 <- out_cat_combined("X5","X8")
+
+head(out_x58,10)
+
+plot_out(out_x58, "X5", "X8")
+
+```
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 52", out.width="300%"}
+
+out_x68 <- out_cat_combined("X6","X8")
+
+head(out_x68,10)
+
+plot_out(out_x68, "X6", "X8")
+
+```
+
+
+
+We find:
+
+
+
+- Most feature groupings have a couple of feature level combinations that only contain outliers. However, almost all of these level combinations contain only a single observation. The single exception is the combination *X0-aa* with *X2-ak* which contains 2 observations with a median *y* of about 150. Nevertheless, not really a large sample. Still useful? I think it might be.
+
+
+
+
+
+
+
+## Large testing times in X0 "aa" - search for patterns
+
+
+
+So far, we know that the *X0* feature has the closest correlation to the testing time clusters discussed [here](https://www.kaggle.com/msp48731/biased-predictions-how-to-deal-with-them) or [here](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook). In that respect, the *X0* level "aa" could be a valuable predictor, since it appears to include *y* values that are systematically higher than any cluster median:
+
+
+
+```{r}
+
+train %>%
+
+  filter(X0 == "aa") %>%
+
+  select(ID,y,X0:X8)
+
+```
+
+
+
+However, as you will have noticed, there are only 2 observations with *X0 == "aa"* in the training data. Moreover, because things are complicated enough already, the level "aa" is missng from the *X0* levels in the test data set.
+
+
+
+Here I want to investigate if there are any patterns correlated with *X0 == "aa"* in the training data that would allow us to identify similarly high testing times in the test data.
+
+
+
+### Categorical feature patterns
+
+
+
+First, we notice that both *X0 == "aa"* observations share the same values of the categorical features *X2* ("ak"), *X3* ("f"), and *X5* ("i"). (They also share *X4 == "d"* but that's pretty trivial.) If we look for the same pattern in the test data this is what we find:
+
+
+
+```{r}
+
+test %>%
+
+  filter(X2 == "ak" & X3 == "f" & X5 == "i") %>%
+
+  select(X0:X8)
+
+```
+
+
+
+This might indicate that X0 "aa" is somewhat similar to *X0* "h" and maybe "n". However, those levels exist in the training data and don't show extreme testing times there:
+
+
+
+```{r}
+
+train %>%
+
+  filter(X0 == "h" | X0 == "n") %>%
+
+  group_by(X0) %>%
+
+  summarise(ymean = mean(y))
+
+```
+
+
+
+Of course, one of the other features might make the difference here, but that means that *X0* as a sole predictor won't get us towards high testing times. Unless I'm missing something here these apparent patterns are not helpful for our goal.
+
+
+
+One more thing to note: a few "outliers" within the *X0 == n/h* levels reach higher levels that are almost consistent with the *X0 == "aa"* median. However, the same is true for many other *X0* levels.
+
+
+
+
+
+### Binary feature patterns
+
+
+
+Another approach is to look at the binary columns, *X10 - X385*, to see which ones are set to "1" for both *X0 == "a"* observations:
+
+
+
+```{r}
+
+x0_aa_bin_col <- train %>%
+
+  filter(X0 == "aa") %>%
+
+  select(X10:X385) %>%
+
+  summarise_all(funs(sum)) %>%
+
+  select_if(.>1) %>%
+
+  colnames()
+
+x0_aa_bin_col
+
+```
+
+
+
+We find 50 columns, which is quite a lot and most likely contains other, "random" binary flags that might not be connected to *X0*. Let's select them from the testing data and sort by the maximum number of flags set per row:
+
+
+
+```{r}
+
+foo <- test %>%
+
+  select(one_of(x0_aa_bin_col))
+
+bar <- foo %>%
+
+  mutate(binsum = rowSums(foo)) %>%
+
+  select(binsum,starts_with("X")) %>%
+
+  arrange(desc(binsum))
+
+head(bar)
+
+```
+
+
+
+We see that no observation has all flags set to "1". We can go a step further by trying to isolate "rare" features, i.e. those that are predominantly filled with "0" but are set to "1" here:
+
+
+
+```{r}
+
+bar %>%
+
+  select(-binsum) %>%
+
+  summarise_all(funs(sum)) %>%
+
+  select_if(.<50)
+
+```
+
+
+
+It's really just a single feature, *X236*:
+
+
+
+
+
+```{r}
+
+test %>%
+
+  filter(X2 == "ak" & X3 == "f" & X5 == "i") %>%
+
+  select(X0:X8, X236)
+
+```
+
+
+
+And it doesn't seem to have any relation to the apparent patterns in the categorical features.
+
+
+
+In summary, it seems to me that there are too few samples with *X0 == "aa"* in the training data to identify meaningful patterns connected to larger testing times.
+
+
+
+
+
+## Variation within testing-time clusters - second-order effects
+
+
+
+From many studies of the data we know that the four distinct clusters in the testing times distributions correlate mainly with the *X0* factor levels. Here I reproduce a plot from my original [MercEDAs kernel](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook) to illustrate the point:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 53", out.width="100%"}
+
+ggplot(train, aes(reorder(X0, y, FUN = median) , y)) + geom_boxplot() + labs(x = "X0") +
+
+  geom_jitter(color="red", width = 0.2, size = 0.4)
+
+```
+
+
+
+
+
+### First step - all categorical feature levels
+
+
+
+In order to study second-order effects beyond this relation, we will group the data by the median of the *X0* feature levels:
+
+
+
+```{r}
+
+foo <- train %>%
+
+  group_by(X0) %>%
+
+  summarise(med_x0 = median(y)) %>%
+
+  mutate(xgroup = case_when(med_x0 < 80 ~ "xg1",
+
+                            med_x0 > 80 & med_x0 < 95 ~ "xg2",
+
+                            med_x0 > 95 & med_x0 < 105 ~ "xg3",
+
+                            med_x0 > 105 ~ "xg4"))
+
+
+
+train_xgroup <- train %>%
+
+  right_join(foo, by = "X0")
+
+```
+
+
+
+The result looks like a convincing decomposition of the testing times distribution:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 54", out.width="100%"}
+
+train_xgroup %>%
+
+  ggplot(aes(y, fill=xgroup)) +
+
+  geom_density(bw = 1, alpha = 0.5) +
+
+  theme(legend.position = "right") +
+
+  guides(fill = guide_legend(ncol = 1, keywidth = 1, keyheight = 1))
+
+```
+
+
+
+Moreover, we see that it might give us a handle on distinguishing the variation within the groups by disentangling the tails of each cluster.
+
+
+
+Next, we will define "slow" (or "fast") testing times within each group to be more than 1 unit below (or above) the group median. This leaves out a band of about 2 units around the median, which is comparable to the ["intrinsic noise"](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook) derived from the standard deviation within the duplicate rows. Thereby, our "slow" vs "fast" characterisation should be relatively robust against random variation.
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+# offset from the median
+
+offs <- 1.0
+
+
+
+xg1_sf <- train_xgroup %>%
+
+  filter(xgroup == "xg1") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg2_sf <- train_xgroup %>%
+
+  filter(xgroup == "xg2") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg3_sf <- train_xgroup %>%
+
+  filter(xgroup == "xg3") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg4_sf <- train_xgroup %>%
+
+  filter(xgroup == "xg4") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg_sf <- full_join(xg1_sf, xg2_sf) %>%
+
+  full_join(., xg3_sf) %>%
+
+  full_join(., xg4_sf) %>%
+
+  mutate(slowfast = recode(slowfast,
+
+                           "0" = "fast",
+
+                           "1" = "med",
+
+                           "2" = "slow"))
+
+```
+
+
+
+Here we visualise the "slow" vs "fast" decomposition in the global *y* distribution:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 55", out.width="100%"}
+
+xg_sf %>%
+
+  ggplot(aes(y, fill=slowfast)) +
+
+  geom_density(position="stack", bw = 0.2) +
+
+  theme(legend.position = "right") +
+
+  guides(fill = guide_legend(ncol = 1, keywidth = 1, keyheight = 1))
+
+```
+
+
+
+The plot demonstrates that we manage to identify the contributions of "slow" vs "fast" tails throughout the entire range of *y* values. "Outliers" above *y == 120*, as discussed in a previous section, fall naturally within the "slow" tail of the cluster with the highest median testing time.
+
+
+
+**Now, the important question is whether we can find any (secondary) trends among the other features that might be correlated with slower/faster testing times.**
+
+
+
+For a first overview we look at filled barplots to investigate the proportion of fast vs slow (vs medium) values in each feature:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 56", out.width="100%"}
+
+p1 <- xg_sf %>% ggplot(aes(X1, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p2 <- xg_sf %>% ggplot(aes(X2, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p3 <- xg_sf %>% ggplot(aes(X3, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p5 <- xg_sf %>% ggplot(aes(X5, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p6 <- xg_sf %>% ggplot(aes(X6, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p8 <- xg_sf %>% ggplot(aes(X8, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+
+
+layout <- matrix(c(1,2,3,4,5,6),3,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, p5, p6, p8, layout=layout)
+
+```
+
+
+
+We find:
+
+
+
+- *X3, X6, and X8* show no strong variations in the ratio of fast/slow testing times in their features. (Although *X6* has slightly more of an impact than the others.) This is useful information, since it allows to ignore these features for the purpose of this analysis. It is also consistent with the overview boxplots in the [first MercEDAs kernel](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook) that showed these three features to have less impact on *y*.
+
+
+
+- *X1, X2, and X5* exhibit potentially interesting variation patterns. Let's investigate them in more detail:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 57", out.width="100%"}
+
+xg_sf %>%
+
+  ggplot(aes(X1, fill = slowfast)) +
+
+  geom_bar(position = "dodge")
+
+```
+
+
+
+*X1* "g" actually only consists of "med" values, but also contains not many data points in total. Most higher-frequency levels are reasonably balanced.
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 58", out.width="100%"}
+
+xg_sf %>%
+
+  ggplot(aes(X2, fill = slowfast)) +
+
+  geom_bar(position = "dodge") +
+
+  scale_y_sqrt()
+
+```
+
+
+
+Similar for *X2*, in that the most polarised levels are the ones with few data. However, here we see differences also in the more populated levels, e.g. with "as" having about 80 more "slow" than "fast" data points. Check out also "ai" or "m". And notice the square-root scaling of the y-axis.
+
+
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 59", out.width="100%"}
+
+xg_sf %>%
+
+  ggplot(aes(X5, fill = slowfast)) +
+
+  geom_bar(position = "dodge")
+
+```
+
+
+
+Also for *X5* only the sparse levels are completely dominated by one of the "slowfast" values. However, here there is a bit more additional signal: Several well-populated *X5* levels show significantly more "fast" than "slow" values (e.g. "aa", "v", "w"). The opposite, more "slow" than "fast" majority levels, happens as well with similarly striking differences (e.g. "af" and "m").
+
+
+
+*In summary*, we find that certain feature levels of *X1, X2* and in particular *X5* have a notable impact on whether an observation is slower or faster than the median testing time of it's *X0* cluster. This directly addresses the question posed by Mercedes in their [discussion topic update](https://www.kaggle.com/c/mercedes-benz-greener-manufacturing/discussion/35382): "What extras cause higher durations than the median?"
+
+
+
+
+
+### Second step - without the rare categorical feature levels
+
+
+
+Now we include the results of Section 3.1.4, where we found that the rarest feature levels did not contribute significantly to the overall variation within the clusters. Therefore, we will now repeat our analysis for the *most populated feature levels* only.
+
+
+
+```{r}
+
+foo <- train_pop %>%
+
+  group_by(X0) %>%
+
+  summarise(med_x0 = median(y)) %>%
+
+  mutate(xgroup = case_when(med_x0 < 80 ~ "xg1",
+
+                            med_x0 > 80 & med_x0 < 95 ~ "xg2",
+
+                            med_x0 > 95 & med_x0 < 105 ~ "xg3",
+
+                            med_x0 > 105 ~ "xg4"))
+
+
+
+train_pop_xgroup <- train_pop %>%
+
+  right_join(foo, by = "X0")
+
+```
+
+
+
+The decomposition is practically indistinguishable from the one for the complete data set:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 60", out.width="100%"}
+
+train_pop_xgroup %>%
+
+  ggplot(aes(y, fill=xgroup)) +
+
+  geom_density(bw = 1, alpha = 0.5) +
+
+  theme(legend.position = "right") +
+
+  guides(fill = guide_legend(ncol = 1, keywidth = 1, keyheight = 1))
+
+```
+
+
+
+A similar categorisation into slow/medium/fast groups:
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+# offset from the median
+
+offs <- 1.0
+
+
+
+xg1_sf_pop <- train_pop_xgroup %>%
+
+  filter(xgroup == "xg1") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg2_sf_pop <- train_pop_xgroup %>%
+
+  filter(xgroup == "xg2") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg3_sf_pop <- train_pop_xgroup %>%
+
+  filter(xgroup == "xg3") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg4_sf_pop <- train_pop_xgroup %>%
+
+  filter(xgroup == "xg4") %>%
+
+  mutate(fast = ifelse(y < med_x0 - offs, 0, 1)) %>%
+
+  mutate(slow = ifelse(y > med_x0 + offs, 1, 0)) %>%
+
+  mutate(slowfast = factor(slow+fast))
+
+
+
+xg_sf_pop <- full_join(xg1_sf_pop, xg2_sf_pop) %>%
+
+  full_join(., xg3_sf_pop) %>%
+
+  full_join(., xg4_sf_pop) %>%
+
+  mutate(slowfast = recode(slowfast,
+
+                           "0" = "fast",
+
+                           "1" = "med",
+
+                           "2" = "slow"))
+
+```
+
+
+
+Result looks decent:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 61", out.width="100%"}
+
+xg_sf_pop %>%
+
+  ggplot(aes(y, fill=slowfast)) +
+
+  geom_density(position="stack", bw = 0.2) +
+
+  theme(legend.position = "right") +
+
+  guides(fill = guide_legend(ncol = 1, keywidth = 1, keyheight = 1))
+
+```
+
+
+
+Another look at the other categorical features, now with fewer levels:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 62", out.width="100%"}
+
+p1 <- xg_sf_pop %>% ggplot(aes(X1, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p2 <- xg_sf_pop %>% ggplot(aes(X2, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p3 <- xg_sf_pop %>% ggplot(aes(X3, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p5 <- xg_sf_pop %>% ggplot(aes(X5, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p6 <- xg_sf_pop %>% ggplot(aes(X6, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+p8 <- xg_sf_pop %>% ggplot(aes(X8, fill = slowfast)) + geom_bar(position = "fill") + theme(legend.position = "none")
+
+
+
+layout <- matrix(c(1,2,3,4,5,6),3,2,byrow=TRUE)
+
+multiplot(p1, p2, p3, p5, p6, p8, layout=layout)
+
+```
+
+
+
+I guess I shouldn't be too surprised by this, but there is almost no variation left. Only *X5* and *X8* have a hint of variation; otherwise the levels are pretty smoothly distributed .
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 63", out.width="100%"}
+
+xg_sf_pop %>%
+
+  ggplot(aes(X5, fill = slowfast)) +
+
+  geom_bar(position = "dodge")
+
+```
+
+
+
+This is *X5*. Remember that the "fast" (red) bars are always to the left of the corresponding "slow" (blue) bars.
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 64", out.width="100%"}
+
+xg_sf_pop %>%
+
+  ggplot(aes(X8, fill = slowfast)) +
+
+  geom_bar(position = "dodge") +
+
+  scale_y_sqrt()
+
+```
+
+
+
+The *X8* slow/fast levels are much more similar to each other than in the case of *X5*.
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 65", out.width="100%"}
+
+xg_sf_pop %>%
+
+  ggplot(aes(X6, fill = slowfast)) +
+
+  geom_bar(position = "dodge")
+
+```
+
+
+
+And maybe *X6* has an small effect in the "d", "g", and "j" levels.
+
+
+
+Overall, we confirm our earlier impression that the strongest discrepancies between slow/fast groups in individual feature levels can be found in *X5*. Let's check the fast-dominated vs slow-dominated levels:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 66", out.width="100%"}
+
+x5_fast <- train_pop_xgroup %>%
+
+  filter(X5 %in% c("aa", "i", "r", "s", "v", "w"))
+
+x5_slow <- train_pop_xgroup %>%
+
+  filter(X5 %in% c("af", "c", "j", "m", "p"))
+
+
+
+x5_fast %>%
+
+  ggplot(aes(y)) +
+
+  stat_ecdf(geom = "step") +
+
+  stat_ecdf(aes(y), data = x5_slow, geom = "step", color = "red")
+
+  #geom_density(data = x5_fast, aes(y), bw = 1) +
+
+  #geom_density(bw = 1, alpha = 0.5, color = "red")
+
+```
+
+
+
+Here, black is the "fast" cumulative distribution (for the popular levels) and red is the "slow" one based on the *X5* levels we noticed.
+
+
+
+**There are clear differences visible (albeit not very large ones) that suggest that *X5* is the predominant source behind slower/faster testing times within a cluster.**
+
+
+
+
+
+### Third step - binary variables
+
+
+
+As before, we use the same 4 groups and the corresponding slow/fast classification to identify the binary features that impact the width of the clusters. To do this, here we count how many times a binary feature is set to "1" in the "slow" groups versus how many times it is set to "1" overall. The resulting ratio "slow/all" will be the basis of our analysis in this section.
+
+
+
+```{r}
+
+bcol <- xg_sf %>%
+
+  select(X10:X385) %>%
+
+  colnames()
+
+
+
+sf_bin_ratio <- tibble(
+
+  col = rep("test", length(bcol)),
+
+  ratio = rep(-1, length(bcol)),
+
+  slow_ones = -1,
+
+  ones = -1
+
+)
+
+
+
+#for (i in seq(1:4)){ #seq(length(bcol))){
+
+for (i in seq(length(bcol))){
+
+  
+
+  foo <- xg_sf %>%
+
+    group_by_(.dots = "slowfast", bcol[i]) %>%
+
+    count() %>%
+
+    filter_(interp(~x == 1, .values = list(x = as.name(bcol[i]))))
+
+  
+
+  ones <- foo %>%
+
+    filter(slowfast != "mid") %>%
+
+    .$n %>%
+
+    sum()
+
+  
+
+  slow_ones <- foo %>%
+
+    filter(slowfast == "slow") %>%
+
+    .$n
+
+  if(length(slow_ones) == 0){slow_ones <- 0}
+
+  
+
+  sf_bin_ratio$col[i] <- bcol[i]
+
+  sf_bin_ratio$ratio[i] <- slow_ones/ones
+
+  sf_bin_ratio$ones[i] <- ones
+
+  sf_bin_ratio$slow_ones[i] <- slow_ones
+
+  
+
+}
+
+```
+
+
+
+This is what the histogram of all the ratios looks like:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 67", out.width="100%"}
+
+sf_bin_ratio %>%
+
+  filter(ones > 10) %>%
+
+  ggplot(aes(ratio)) +
+
+  geom_histogram(bins = 50)
+
+```
+
+
+
+We find that the ratios are clustered around 0.4 in what might be a distribution that is somewhat skewed towards the left. Importantly for our analysis goal, there are a number of notable outliers, especially towards the slow end of the spectrum.
+
+
+
+Let's visualise all ratios that are more than 3 standard deviations away from the distribution mean vs the corresponding binary feature names. Here we are already filtering our features by more than 10 "1" values in total, to avoid small number statistics. For determining the sample mean and standard deviation we also discard the highest ratios which look more like outliers than the lower ones.
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 68", out.width="100%"}
+
+bin_mean <- sf_bin_ratio %>%
+
+  filter(ones > 10) %>%
+
+  filter(ratio < 0.8) %>%
+
+  select(ratio) %>%
+
+  filter(!is.na(ratio)) %>%
+
+  .$ratio %>%
+
+  mean()
+
+
+
+bin_sd <- sf_bin_ratio %>%
+
+  filter(ones > 10) %>%
+
+  filter(ratio < 0.8) %>%
+
+  select(ratio) %>%
+
+  filter(!is.na(ratio)) %>%
+
+  .$ratio %>%
+
+  sd()
+
+
+
+sf_bin_ratio %>%
+
+  filter(ones > 10) %>%
+
+  filter(abs(ratio - bin_mean) > 3*bin_sd) %>%
+
+  ggplot(aes(reorder(col, ratio, FUN = max),ratio)) +
+
+  geom_point(color="blue", size = 2) +
+
+  labs(x = "binary column", y = "ratio of slow flags / all flags") +
+
+  coord_flip()
+
+  
+
+```
+
+
+
+Here, the predominantly "fast" binary features are on the left side of the plot and the "slow" ones on the right side of the plot. A 3 sigma criterion might be too strong here, but it is mainly intended to serve as a first look. If the strongest features don't show much signal then it is not very likely that any of those closer to the mean would be of much use to us.
+
+
+
+We find that there are a few features with very high contribution to the "slow" group, almost up to 1 in the case of *X267*. Those are the numbers, starting with the highest ratios:
+
+
+
+```{r}
+
+sf_bin_ratio %>%
+
+  filter(ones > 10) %>%
+
+  filter(abs(ratio - bin_mean) > bin_sd) %>%
+
+  arrange(desc(ratio)) %>%
+
+  head(7)
+
+```
+
+
+
+We see that none of the them has more than 60 "1" bins in total. In result, those are rather small numbers that might not have much influence on the overall distribution. 
+
+
+
+However, *X267* and *X47* look interesting enough. They both have more than 30 "1" flags in total and almost all of them are in groups of slower testing times. Let's compare their densitiy distributions for being set to "1" vs "0":
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 69", out.width="100%"}
+
+slow_bin <- train %>% filter(X267 == 0)
+
+fast_bin <- train %>% filter(X267 == 1)
+
+slow_bin %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(color = "black", bw = 1) +
+
+  geom_density(data = fast_bin, aes(y), color = "red", bw = 1) +
+
+  labs(x = "y / X267")
+
+```
+
+
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 70", out.width="100%"}
+
+slow_bin <- train %>% filter(X47 == 0)
+
+fast_bin <- train %>% filter(X47 == 1)
+
+slow_bin %>%
+
+  ggplot(aes(y)) +
+
+  geom_density(color = "black", bw = 1) +
+
+  geom_density(data = fast_bin, aes(y), color = "red", bw = 1) +
+
+  labs(x = "y / X47")
+
+```
+
+
+
+*X267* and *X47* are both contributors to making the 3rd and 4th cluster faster, but don't appear in the 1st and 2nd ones at all. Their density distributions look very similar to each other. Still, these features only account for 37 and 51 observations each.
+
+
+
+**In summary, it appears that the variation in this data comes from a (potentially large) number of different interactions that each contribute a small part.**
+
+
+
+
+
+## X8 properties and stratification
+
+
+
+Motivated by this [recent discussion topic](https://www.kaggle.com/c/mercedes-benz-greener-manufacturing/discussion/35783) I decided to have another look at the *X8* feature.
+
+
+
+In the first [MercEDAs kernel](https://www.kaggle.com/headsortails/mercedas-update2-intrinsic-noise/notebook) we saw that we can define an additional feature that counts the number of binary feature "1" values per row, and that this features shows a peculiar, stratified distribution for the *X8* feature levels:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 71", out.width="100%"}
+
+dummy <- train %>%
+
+  select(ID,y,X10:X385)
+
+foo <- tibble(ID = dummy$ID, binsum = rowSums(dummy[-1:-2]), y = dummy$y)
+
+
+
+train_binsum <- train %>%
+
+  mutate(binsum = foo$binsum)
+
+
+
+train_binsum %>%
+
+  ggplot(aes(reorder(X8, binsum, FUN = min) , binsum)) +
+
+  geom_jitter(color="red", width = 0.2, size = 1) +
+
+  labs(x = "X8")
+
+```
+
+
+
+We see that X8 appears to encode how many binary flags were set in each observation. However, the encoding is not linear but is stratified in 2 groups per factor level (with occasional outliers). It has been [suggested](https://www.kaggle.com/c/mercedes-benz-greener-manufacturing/discussion/34949) that *X8*, together with the other *X0 - X6* is an engineered feature, but I'm not sure about that.
+
+
+
+Let's try to separate the various groups and their parameters:
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 72", out.width="100%"}
+
+foo <- train_binsum %>% 
+
+  group_by(X8) %>% 
+
+  summarise(min_bin = min(binsum), sd_bin = sd(binsum)) %>%
+
+  arrange(min_bin)
+
+
+
+bar <- right_join(train_binsum, foo, by = "X8")
+
+
+
+train_bingroup <- bar %>%
+
+  mutate(bingroup = binsum<min_bin+sd_bin*1.5)
+
+
+
+train_bingroup %>%
+
+  ggplot(aes(reorder(X8, binsum, FUN = min) , binsum, color = bingroup)) +
+
+  geom_jitter(width = 0.2, size = 1) +
+
+  labs(x = "X8")
+
+```
+
+
+
+Ok, that looks decent. We will ignore the couple of outliers in the upper right corner, for now. Now the main question is: do these two stratified groups show any signal in the distributions in *y* and the *X0 - X6*? 
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 73", out.width="100%"}
+
+train_bingroup %>%
+
+  ggplot(aes(y, fill=bingroup)) +
+
+  geom_density(position="stack", bw = 1) +
+
+  theme(legend.position = "right") +
+
+  guides(fill = guide_legend(ncol = 1, keywidth = 1, keyheight = 1))
+
+```
+
+
+
+No real difference in the overall testing time distribution.
+
+
+
+
+
+```{r fig.align = 'default', warning = FALSE, fig.cap ="Fig. 74", out.width="100%"}
+
+train_bingroup %>%
+
+  ggplot(aes(reorder(X0, y, FUN = median) , y, color = bingroup)) +
+
+  labs(x = "X0") +
+
+  geom_jitter(width = 0.3, size = 0.4)
+
+```
+
+
+
+Here, it looks like that some *X0* levels are dominated by one of the *binsum* groups.
+
+
+
+
+
+```{r  fig.align = 'default', warning = FALSE, fig.cap ="Fig. 75", out.width="100%"}
+
+train_bingroup %>% 
+
+  ggplot(aes(reorder(X0, y, funs = median), reorder(X1, y, funs = median), color = bingroup)) +
+
+  geom_count() +
+
+  labs(x = "X0", y = "X1")
+
+```
+
+
+
+And also the *X0 vs X1* combinations show a certain degree of separation by *bingroup* colour.
+
+
+
+There's definitely some sort of relation here, but I'm not quite sure how to implement it.
+
+
+
+---
+
+
+
+Thanks for reading!

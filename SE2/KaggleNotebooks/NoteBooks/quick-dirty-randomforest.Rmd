@@ -1,0 +1,332 @@
+---
+title: 'Quick & Dirty RandomForest'
+author: 'Megan L. Risdal'
+date: '4 April 2016'
+output:
+  html_document:
+    fig_height: 5
+    fig_width: 7
+    highlight: tango
+    number_sections: yes
+    theme: readable
+---
+
+Who doesn't love multiclass classifcation ... and animals! Especially shelter animals. This is the first time I've ever done multiclass classification, actually, so I thought it would be fun to give this a shot. I will use the `randomForest` classification algorithm to predict shelter outcomes.
+
+```{r, message = FALSE, warning = FALSE}
+# Load packages
+library(ggplot2) # visualization
+library(ggthemes) # visualization
+library(dplyr) # data manipulation
+library(lubridate) # dates
+library(rpart) # rpart for imputation
+library(randomForest) # classification algorithm
+
+# Read the data
+train <- read.csv('../input/train.csv', stringsAsFactors = F)
+test <- read.csv('../input/test.csv', stringsAsFactors = F)
+
+# Rename the ID column so train & test match
+names(train)[1] <- 'ID'
+
+# And change ID in test to character
+test$ID <- as.character(test$ID)
+
+# Combine test & training data
+full <- bind_rows(train, test)
+```
+
+Before I start anything, I'm interested to see how the outcomes are distributed for the **`r nrow(test[test$AnimalType == 'Cat', ])` cats** and **`r nrow(test[test$AnimalType == 'Dog', ])` dogs** in the training set.
+
+```{r, message = FALSE, warning = FALSE}
+# Reshape
+outcomes <- full[1:26729, ] %>%
+  group_by(AnimalType, OutcomeType) %>%
+  summarise(num_animals = n())
+
+# Plot
+ggplot(outcomes, aes(x = AnimalType, y = num_animals, fill = OutcomeType)) +
+  geom_bar(stat = 'identity', position = 'fill', colour = 'black') +
+  coord_flip() +
+  labs(y = 'Proportion of Animals', 
+       x = 'Animal',
+       title = 'Outcomes: Cats & Dogs') +
+  theme_few()
+```
+
+Both cats and dogs are commonly adopted (yay!) or transferred (cats moreso), but dogs are much more likely to be returned to their owners than cats. It also appears that cats are more likely to have died compared to dogs. Fortunately, it appears very few animals die or get euthanized overall.
+
+Looking at the variables, the first thing I notice is that the `AgeuponOutcome` variable is not in a format that will be easily usable for us. I'll show you the first ten levels of **`r nlevels(factor(full$AgeuponOutcome))`** of this variable:
+
+```{r}
+factor(full$AgeuponOutcome)[1:10]
+```
+
+Here I'll use `strsplit` to break it up into two parts: the numeric value and its unit of time (i.e., days, weeks, months, and years). I'm also going to rip off the final "s" from everything (i.e., *day* versus *days*) so that we're left with just four levels of a new factor variable.
+
+```{r}
+# Get the time value:
+full$TimeValue <- sapply(full$AgeuponOutcome,  
+                      function(x) strsplit(x, split = ' ')[[1]][1])
+
+# Now get the unit of time:
+full$UnitofTime <- sapply(full$AgeuponOutcome,  
+                      function(x) strsplit(x, split = ' ')[[1]][2])
+
+# Fortunately any "s" marks the plural, so we can just pull them all out
+full$UnitofTime <- gsub('s', '', full$UnitofTime)
+
+full$TimeValue  <- as.numeric(full$TimeValue)
+full$UnitofTime <- as.factor(full$UnitofTime)
+```
+
+Alright, so now we have our time values and our units of time. Now we need to get the animals' ages as measured by a common unit. I will use chained `ifelse` statements to convert everything into days. I figure that years can be too long if every day counts when it comes to your pet, right?
+
+```{r}
+# Make a multiplier vector
+multiplier <- ifelse(full$UnitofTime == 'day', 1,
+              ifelse(full$UnitofTime == 'week', 7,
+              ifelse(full$UnitofTime == 'month', 30, # Close enough
+              ifelse(full$UnitofTime == 'year', 365, NA))))
+
+# Apply our multiplier
+full$AgeinDays <- full$TimeValue * multiplier
+
+summary(full$AgeinDays)
+```
+
+Cool, now everyone is the same age in cat days, dog days, fish days, [siamang](http://krqe.com/2016/03/19/albuquerque-zoo-goes-on-lockdown-after-ape-escape/) days, etc. It's all animal days. 
+
+We have a few more things to tweak. First, there are quite a few animals who sadly **don't have names**. Maybe animals without names have ... *different* ... outcomes? There's also one animal without `SexuponOutcome` specified. Finally, the `DateTime` variable isn't very useful at the moment, but I want to keep things simple for now, too. I'll just extract information at different levels of detail from the `DateTime` variable. My guess is that time of day and day of week will be the best predictors. I will fix all of these and a few more things in the next few code chunks below. Once we have all of our variables in a good place, I will use them (as appropriate) to predict those few missing age values.
+
+In case you get lost, here is a list of variables I'm tweaking or adding:
+
+1. **Name** (no name versus named)
+2. Missing sex value for one animal
+3. **Time variables** extracted from `DateTime`
+4. **Mix** (is mix versus not a mix)
+5. **Intactness** (intact versus not versus unknown)
+6. **Sex** (M versus F versus unknown)
+
+```{r}
+# Replace blank names with "Nameless"
+full$Name <- ifelse(nchar(full$Name)==0, 'Nameless', full$Name)
+
+# Make a name v. no name variable
+full$HasName[full$Name == 'Nameless'] <- 0
+full$HasName[full$Name != 'Nameless'] <- 1
+
+# Replace blank sex with most common
+full$SexuponOutcome <- ifelse(nchar(full$SexuponOutcome)==0, 
+                              'Spayed Female', full$SexuponOutcome)
+
+# Extract time variables from date (uses the "lubridate" package)
+full$Hour    <- hour(full$DateTime)
+full$Weekday <- wday(full$DateTime)
+full$Month   <- month(full$DateTime)
+full$Year    <- year(full$DateTime)
+
+# Time of day may also be useful
+full$TimeofDay <- ifelse(full$Hour > 5 & full$Hour < 11, 'morning',
+                  ifelse(full$Hour > 10 & full$Hour < 16, 'midday',
+                  ifelse(full$Hour > 15 & full$Hour < 20, 'lateday', 'night')))
+
+# Put factor levels into the order we want
+full$TimeofDay <- factor(full$TimeofDay, 
+                    levels = c('morning', 'midday',
+                               'lateday', 'night'))
+```
+
+I'm kind of curious to see now if `TimeofDay` really does make an apparent difference in outcome. I assume animals are only adopted during "working" hours, but they could die at any time of day.
+
+```{r, message = FALSE, warning = FALSE}
+# Reshape
+daytimes <- full[1:26729, ] %>%
+  group_by(AnimalType, TimeofDay, OutcomeType) %>%
+  summarise(num_animals = n())
+
+# Plot
+ggplot(daytimes, aes(x = TimeofDay, y = num_animals, fill = OutcomeType)) +
+  geom_bar(stat = 'identity', position = 'fill', colour = 'black') +
+  facet_wrap(~AnimalType) +
+  coord_flip() +
+  labs(y = 'Proportion of Animals', 
+       x = 'Animal',
+       title = 'Outcomes by Time of Day: Cats & Dogs') +
+  theme_few()
+```
+
+We learn some things here like the fact that dogs are most often euthanized in the morning. Hopefully our machine learns this, too! Okay, next ...
+
+The `Breed` variable has way too many levels; **`r nlevels(factor(full$Breed))`** to be exact. I'm going to deal with this in part by contrasting mixes with non-mixes. I will also use `strsplit` and `gsub` to grab just the first breed if there are multiple breeds split by "/" and removing "Mix" from the mix.
+
+```{r}
+# Take a look as some of the levels
+levels(factor(full$Breed))[1:10]
+
+# Use "grepl" to look for "Mix"
+full$IsMix <- ifelse(grepl('Mix', full$Breed), 1, 0)
+
+# Split on "/" and remove " Mix" to simplify Breed
+full$SimpleBreed <- sapply(full$Breed, 
+                      function(x) gsub(' Mix', '', 
+                        strsplit(x, split = '/')[[1]][1]))
+```
+
+Now we have *only* **`r nlevels(factor(full$SimpleBreed))`** levels of our new variable `SimpleBreed`. That's a lot fewer and hopefully we preserved plenty of information (probably still too much ...). There's also too many colors. This time only **`r nlevels(factor(full$Color))`** unique colors. My favorites are "Orange/Orange Tabby" (Garfield?) and "Liver tick/White." Let's simplify `Color`, too.
+
+```{r}
+# Use strsplit to grab the first color
+full$SimpleColor <- sapply(full$Color, 
+                      function(x) strsplit(x, split = '/| ')[[1]][1])
+```
+
+We have successfully simplified things to so few colors that I can show them all to you:
+
+```{r}
+levels(factor(full$SimpleColor))
+```
+
+I really didn't know what the color "agouti" was. It's quite the fancy term for a pretty neutral coat.
+
+Finally, one very important thing we can take care of now that we've replaced the missing `SexuponOutcome` value ... make a distinction between animal **sex** and **intactness**. These are definitely two distinctive features, so let's separate them. Quickly!
+
+```{r}
+# Use "grepl" to look for "Intact"
+full$Intact <- ifelse(grepl('Intact', full$SexuponOutcome), 1,
+               ifelse(grepl('Unknown', full$SexuponOutcome), 'Unknown', 0))
+
+# Use "grepl" to look for sex
+full$Sex <- ifelse(grepl('Male', full$SexuponOutcome), 'Male',
+            ifelse(grepl('Unknown', full$Sex), 'Unknown', 'Female'))
+```
+
+Things are going well. If I've learned anything from watching *The Price is Right*, it's that neutering your pet is very important. Shall we see if it's a significant factor in determining shelter animal outcomes?
+
+```{r, warning = FALSE, message = FALSE}
+# Reshape
+intact <- full[1:26729, ] %>%
+  group_by(AnimalType, Intact, OutcomeType) %>%
+  summarise(num_animals = n())
+
+# Plot
+ggplot(intact, aes(x = Intact, y = num_animals, fill = OutcomeType)) +
+  geom_bar(stat = 'identity', position = 'fill', colour = 'black') +
+  facet_wrap(~AnimalType) +
+  coord_flip() +
+  labs(y = 'Proportion of Animals', 
+       x = 'Animal',
+       title = 'Outcomes by Intactness: Cats & Dogs') +
+  theme_few()
+```
+
+Animals are *much* more likely to be adopted if they've been neutered. We were right to listen to Bob Barker. Smaller proportions of neutered animals end up euthanized or dying.
+
+Let's not get ahead of ourselves, though. Recall that we had 24 missing values of `AgeinDays`. In this next step, I use the `rpart` function to fit a decision tree predicting animal `AgeinDays` by (some of) the great new variables we created or fixed. I don't think things like temporal factors, for example, should have anything to do with our animals' ages upon their respective outcomes, so not everything is thrown in.
+
+```{r}
+# Use rpart to predict the missing age values
+age_fit <- rpart(AgeinDays ~ AnimalType + Sex + Intact + SimpleBreed + HasName, 
+              data = full[!is.na(full$AgeinDays), ], 
+              method = 'anova')
+
+# Impute predicted age values where missing using "predict"
+full$AgeinDays[is.na(full$AgeinDays)] <- predict(age_fit, full[is.na(full$AgeinDays), ])
+
+# All gone? Yes.
+sum(is.na(full$AgeinDays))
+```
+
+Now that we have an age variable we can work with, I have this hypothesis that there should be a distinct difference between baby animals and adult or full grown animals. I googled it and see that a cat is full grown around 12 months and a dog between 9 and 15 months depending on the breed, so I'll just use 365 days as my cut-off.
+
+```{r}
+# Use the age variable to make a puppy/kitten variable
+full$Lifestage[full$AgeinDays < 365] <- 'baby'
+full$Lifestage[full$AgeinDays >= 365] <- 'adult'
+
+full$Lifestage <- factor(full$Lifestage)
+```
+
+What does the relationship between animal lifestage and their outcome?
+
+```{r, warning = FALSE, message = FALSE}
+# Plot in ggplot2
+ggplot(full[1:26729, ], aes(x = Lifestage, fill = OutcomeType)) + 
+  geom_bar(position = 'fill', colour = 'black') +
+  labs(y = 'Proportion', title = 'Animal Outcome: Babies versus Adults') +
+  theme_few()
+```
+
+Unsurprisingly, baby animals are more likely to be adopted than adult animals. They are also more likely to be transferred and to have died. 
+
+We're finally ready to factorize the rest of the variables in prepartion for fitting a model to the data and making a prediction.
+
+```{r}
+factorVars <- c('Name','OutcomeType','OutcomeSubtype','AnimalType',
+                'SexuponOutcome','AgeuponOutcome','SimpleBreed','SimpleColor',
+                'HasName','IsMix','Intact','Sex','TimeofDay','Lifestage')
+
+full[factorVars] <- lapply(full[factorVars], function(x) as.factor(x))
+```
+
+Let's fit a `randomForest` model predicting `OutcomeType`. Do you think about 80% of my text will have ended up being dedicated to messing around with features once we reach the end?
+
+```{r}
+# Split up train and test data
+train <- full[1:26729, ]
+test  <- full[26730:nrow(full), ]
+
+# Set a random seed
+set.seed(731)
+
+# Build the model
+rf_mod <- randomForest(OutcomeType ~ AnimalType+AgeinDays+Intact+HasName+Hour+Weekday+TimeofDay+SimpleColor+IsMix+Sex+Month, 
+  data = train, 
+  ntree = 600, 
+  importance = TRUE)
+
+# Show model error
+plot(rf_mod, ylim=c(0,1))
+legend('topright', colnames(rf_mod$err.rate), col=1:6, fill=1:6)
+```
+
+Well, it's a start. I'm actually doing perfectly badly predicting death as an outcome which seems weird. How's things going right now with the importance of the variables included so far?
+
+```{r}
+# Get importance
+importance    <- importance(rf_mod)
+varImportance <- data.frame(Variables = row.names(importance), 
+                            Importance = round(importance[ ,'MeanDecreaseGini'],2))
+
+# Create a rank variable based on importance
+rankImportance <- varImportance %>%
+  mutate(Rank = paste0('#',dense_rank(desc(Importance))))
+
+# Use ggplot2 to visualize the relative importance of variables
+ggplot(rankImportance, aes(x = reorder(Variables, Importance), 
+    y = Importance)) +
+  geom_bar(stat='identity', colour = 'black') +
+  geom_text(aes(x = Variables, y = 0.5, label = Rank),
+    hjust=0, vjust=0.55, size = 4, colour = 'lavender',
+    fontface = 'bold') +
+  labs(x = 'Variables', title = 'Relative Variable Importance') +
+  coord_flip() + 
+  theme_few()
+```
+
+So far the most important variable for predicting the outcomes of shelter animals is `AgeinDays` -- and not `Intact`! As I had guessed, hour of the day and weekday are not doing too badly either. I'm also somewhat surprised to see that `SimpleColor` is ranked above `Sex` and `IsMix`.
+
+Now I'm ready to make my prediction. This is the first time I've done multiclass classification, so forgive me if you saw my first submission. Thank you to William for pointing me in the right direction! I'm learning so much on Kaggle, already. Anyway, I'm now submitting a probability for each class rather than the most likely class and to my relief, my [log loss](http://www.r-bloggers.com/making-sense-of-logarithmic-loss/) is much lower upon submission than it was originally.
+
+```{r}
+# Predict using the test set
+prediction <- predict(rf_mod, test, type = 'vote')
+
+# Save the solution to a dataframe
+solution <- data.frame('ID' = test$ID, prediction)
+
+# Write it to file
+write.csv(solution, 'rf_solution.csv', row.names = F)
+```
+
+That's all for now. Thanks for reading. If you have any feedback, I'd love to hear! I appreciate all the feedback I've received so far.

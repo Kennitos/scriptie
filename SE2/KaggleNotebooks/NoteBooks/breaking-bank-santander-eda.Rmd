@@ -1,0 +1,938 @@
+---
+title: '[**Br**]eaking [**Ba**]nk - Santander EDA'
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    number_sections: true
+    fig_caption: true
+    toc: true
+    fig_width: 7
+    fig_height: 4.5
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo=TRUE, error=FALSE)
+```
+
+ <center><img src="https://www.santanderbank.com/us/documents/22507/0/im-a-MediaCenterUpdates_ConceptB.v7.FINAL_HeaderGraphic_new/111d3bf1-527f-4863-9052-54d5c13b7dd5"></center>
+
+# Introduction
+
+This is an Exploratory Data Analysis for the [Santander Value Prediction](https://www.kaggle.com/c/santander-value-prediction-challenge/) competition with the powers of the [tidyverse](http://tidyverse.org/) and [ggplot2](http://ggplot2.tidyverse.org/) within the R markdown environment.
+
+The aim of this challenge is to predict the ["value of transactions for each potential customer"](https://www.kaggle.com/c/santander-value-prediction-challenge#description) based on customer data provided by the Santander Bank. More specifically, the bank wants us to predict the "value of the customer's transaction" before it occurs. The goal is to provide tailored financial service based on this prediction. This is the 3rd time that the [Santander Group](https://www.santanderbank.com/us/personal) is requesting the help of the Kaggle community.
+
+The US [Santander Bank](https://en.wikipedia.org/wiki/Santander_Bank) is the subsidiary of a large banking group originally from the Spanish city of Santander. It has [more than 600 branches](https://www.santanderbank.com/us/about/about-us) accross the northeast of the United States.
+
+The [data](https://www.kaggle.com/c/santander-value-prediction-challenge/data) comes in the familiar form of the train (`../input/train.csv`) and test (`../input/test.csv`) data sets. However, according to the [welcome discussion thread](https://www.kaggle.com/c/santander-value-prediction-challenge#description) we are dealing with a "sparse tabular dataset" and anonymised data. This should make it very difficult, maybe impossible, to exploit domain knowledge. I would be surprised, though, if nobody tried to re-engineer the features ;-)
+
+The data itself is not large, at close to 1 GB for the *test* set, which makes it accessible for analysis on local machines with limited memory. However, the data is also noticeably wide with a large set of features. This fact will play a major role in our exploration.
+
+Let's get started!
+
+
+# Preparations {.tabset .tabset-fade .tabset-pills}
+
+## Load libraries
+
+We load a range of libraries for general data wrangling and general visualisation together with more specialised tools.
+
+```{r, message = FALSE}
+# general visualisation
+library('ggplot2') # visualisation
+library('scales') # visualisation
+library('grid') # visualisation
+library('gridExtra') # visualisation
+library('RColorBrewer') # visualisation
+library('corrplot') # visualisation
+
+# general data manipulation
+library('dplyr') # data manipulation
+library('readr') # input/output
+library('data.table') # data manipulation
+library('tibble') # data wrangling
+library('tidyr') # data wrangling
+library('stringr') # string manipulation
+library('forcats') # factor manipulation
+
+# specific visualisation
+library('alluvial') # visualisation
+library('ggrepel') # visualisation
+library('ggforce') # visualisation
+library('ggridges') # visualisation
+library('gganimate') # animations
+library('gridExtra') # visualisation
+library('GGally') # visualisation
+library('ggExtra') # visualisation
+
+# specific data manipulation
+library('lazyeval') # data wrangling
+library('broom') # data wrangling
+library('purrr') # string manipulation
+library('reshape2') # data wrangling
+library('rlang') # data wrangling
+
+# parallel
+library('foreach')
+library('doParallel')
+```
+
+## Helper functions
+
+We define a brief helper function to compute binomial confidence intervals.
+
+```{r}
+# function to extract binomial confidence levels
+get_binCI <- function(x,n) as.list(setNames(binom.test(x,n)$conf.int, c("lwr", "upr")))
+```
+
+## Load data
+
+```{r echo=FALSE}
+on_kaggle <- 1
+
+if (on_kaggle == 0){
+  path <- ""
+} else {
+  path <- "../input/"
+}
+```
+
+```{r warning=FALSE, results=FALSE}
+train <- read_csv(str_c(path,'train.csv'))
+test <- read_csv(str_c(path,'test.csv'))
+sample_submit <- read_csv(str_c(path,'sample_submission.csv'))
+```
+
+
+# Overview: File structure and content {.tabset .tabset-fade .tabset-pills}
+
+As a first step let's have an overview of the data. In doing so we immediately find that the data set has a significantly different form than what we normally see on Kaggle.
+
+## Training data
+
+The *train* data set has 4459 rows and 4993 columns:
+
+```{r}
+dim_desc(train)
+```
+
+That's right: Our data set is wider than it is tall. This makes it difficult (among other things) to display the usual overview tables, so let's only take a glimpse at the first 15 columns:
+
+```{r}
+glimpse(train[seq(1,15)])
+```
+
+We find:
+
+- We have an anonymised *ID* feature together with a numerical *target* variable. The typical values of this target seem to be relatively high.
+
+- The remaining 4991 features are completely anonymous and appear to be primarily in integer or double format.  Also here we find a large numerical range of values; in one instance from 7,000 to 17,020,000. Many columns have large numbers of zeros.
+
+- We were promised a sparse data frame and sparse it looks indeed: Our *train* data consists of an impressive `{r foo <- train %>% select(-target, -ID); sprintf("%.1f", sum(foo < 0.01, na.rm = TRUE)/(nrow(foo) * ncol(foo))*100)}`% zeros. This does not include the *ID* and *target* features and only shows the sparseness in the anonymous columns.
+
+
+## Test data:
+
+The *test* data consists of 4992 columns, corresponding to the 4993 *train* features minus the training variable. The difference is that here we have almost 50k rows, which is a factor of 10 larger than for the *training* data:
+
+```{r}
+dim_desc(test)
+```
+
+The *test* data set looks generally similar to the training data:
+
+```{r}
+test[seq(1,5)] %>% head(5)
+```
+
+Here, we find that the data set contains`{r sprintf("%.1f", sum(test < 0.01, na.rm = TRUE)/(nrow(test) * ncol(test))*100)}`% zeros. This is a higher percentage than for the training data.
+
+
+## Missing values
+
+There appear to be no missing values in either the *train* nor *test* data set.
+
+```{r}
+sum(is.na(train))
+sum(is.na(test))
+```
+
+
+# Feature visualisations
+
+Now that we have an idea what we're dealing with let's dive deeper into the data by visualising various aspects of it. In a data set with only a handful of features we have the luxury of immediately plotting all of them. Here we have to work a bit harder to get insight into the important features.
+
+## Target variable
+
+First of all, though, let's start with the target variable. Its distribution can be best displayed on a log scale:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 1", fig.height=3.5, out.width="100%"}
+p1 <- train %>%
+  ggplot(aes(target)) +
+  geom_histogram(bins = 100, fill = "red") +
+  scale_x_log10() +
+  labs(x = "Target") +
+  ggtitle("Global target feature distribution")
+
+p2 <- train %>%
+  mutate(tar = as.character(target)) %>%
+  group_by(tar) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  head(10) %>%
+  ggplot(aes(reorder(tar, n, FUN = min), n)) +
+  geom_col(fill = "blue") +
+  coord_flip() +
+  labs(x = "Target values", y = "frequency") +
+  ggtitle("Most frequent target values")
+
+grid.arrange(p1, p2, layout_matrix = rbind(c(1,2)))  
+```
+
+We find:
+
+- The *target* distribution is reasonably flat with a broad peaks between values of 1e6 and 1e7 as well as just above 1e7 (left-side panel).
+
+- There are notable high-count peaks at several specific *target* values. Those are visualised in the right-side panel. Note, that the values are not ordered on a numerical scale but instead by frequency. We see that 2 and 10 million are the most frequent single values in the data set with counts of about 200 each.
+
+- The range of the *target* values cuts of rather abruptly at either end. Those are the min and max values:
+
+```{r}
+range(train$target)
+```
+
+## Anonymised features - global properties
+
+Here we strive to extract overview statistics for the anonymous variables that will provide us with the basis for investigating the most interesting ones in the subsequent section.
+
+### Correlation plot example
+
+To get a hold of promising predictor features we want to investigate possible correlations with the *target* variable. I have the feeling that this competition will primarily be about separating the signal from the noise when it comes to the question which features to include in a prediction.
+
+Here is an example of what a correlation plot looks like for only the first few columns. We utilis the `ggcorr` tool from the [`GGally` package](https://cran.r-project.org/web/packages/GGally/index.html) which has a number of useful styling and formatting options. In this plot stronger correlations have brighter colours from blue (negative correlation) to red (positive correlation). The closer a plot element is to grey the closer the (spearman) correlation coefficient is to zero: 
+
+```{r  split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 2", fig.height=3.5, out.width="100%"}
+train[seq(1,15)] %>%
+  select(-ID) %>%
+  ggcorr(method = c("pairwise","spearman"), label = FALSE, angle = -0, hjust = 0.2) +
+  coord_flip()
+```
+
+We see that most columns have no correlation of any kind with each other or the target variable. There are some week positive correlations among some of the features but even those are not noteworthy.
+
+If we repeat this approach for the full set of features we'll run into problems with zero-variance columns, i.e. those that only have one single value in all of their rows. That leads us naturally to wanting to know more about the column statistics.
+
+
+### Meta-parameter statistics
+
+In addition to the variance, we also extract the mean, the median (commented out to save runtime because it's ultimately uninformative; see below), and the number of '0' entries per column:
+
+
+```{r}
+foo <- train %>%
+  select(-ID, -target) %>%
+  summarise_all(funs(mean)) %>%
+  gather(everything(), key = "feature", value = "mean")
+
+bar <- train %>%
+  select(-ID, -target) %>%
+  summarise_all(funs(sd)) %>%
+  gather(everything(), key = "feature", value = "sd")
+
+stat <- train %>%
+  select(-ID, -target) %>%
+  summarise_all(funs(sum(.<0.001))) %>%
+  gather(everything(), key = "feature", value = "zeros") %>%
+  left_join(foo, by = "feature") %>%
+  left_join(bar, by = "feature")
+```
+
+
+Armed with this data set we visualise the global meta properties. Note the logarithmic scales for everything except the zero percentages:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 3", out.width="100%"}
+p1 <- stat %>%
+  ggplot(aes(mean+1)) +
+  geom_histogram(bins = 30, fill = "red") +
+  scale_x_log10() +
+  labs(x = "Feature mean + 1") +
+  ggtitle("Feature means")
+
+p2 <- stat %>%
+  ggplot(aes(sd+1)) +
+  geom_histogram(bins = 30, fill = "blue") +
+  scale_x_log10() +
+  labs(x = "Feature std dev + 1")  +
+  ggtitle("Feature std dev")
+
+p3 <- stat %>%
+  mutate(zeros = zeros/nrow(train)*100) %>%
+  ggplot(aes(zeros)) +
+  geom_histogram(bins = 50, fill = "orange") +
+  labs(x = "Percentage of zero values")  +
+  ggtitle("Zero values in feature")
+
+p4 <- stat %>%
+  ggplot(aes(mean+1, sd + 1)) +
+  geom_point(col = "darkgreen") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(x = "Feature mean + 1", y = "Feature std dev + 1")
+
+grid.arrange(p1, p2, p3, p4, layout_matrix = rbind(c(1,2),c(3,4)))
+```
+
+To be more precise: we are using log(x+1) transformations here to preserve the possibility to plot '0' values.
+
+We find:
+
+- The means cluster around values of 1e5 in a reasonably symmetric distribution (in log space); see the upper left panel (red). There is a stronger tail towards lower values and the occasional mean from below 1000 down to zero. We also have a sizeable number of instances with `mean == 0` here. Without negative values (which we can verify) these columns are obviously only containing zeros and can therefore be safely removed, thus reducing the size of our data set.
+
+- The same values with `mean == 0` are likely showing up as having `std dev == 0` in our upper right (blue) plot. The standard deviations are generally large; ranging predominantly between 1e5 and 1e8 in what is again a relatively log-symmetric distribution.
+
+- The number of zeros per column shows the suspected zero-variance/mean features prominently. The lower-left (orange) plot also emphasises just how empty this sparse data matrix is, with the vast majority of features containing more than 95% zeros. This is the full range of zero percentages, showing that no column is more than 40% populated:
+
+```{r}
+stat %>%
+  mutate(zeros = zeros/nrow(train)*100) %>%
+  .$zeros %>%
+  range(na.rm = TRUE)
+```
+
+- As those numbers already indicate we also find that all medians are zero without exception.
+
+- In the the lower-right (green) plot we show a scatter diagram of mean vs std dev. The interesting thing here is that in the log-log space both meta features show a decently linear relationship that indicates a power-law relation between the mean and scatter within a column. Maybe this result is obvious, but I can't see a-apriori why a large mean couldn't have a small scatter. If nothing else, the narrow variation around this relationship is certainly noteworthy.
+
+
+### Sanity check
+
+Time for a quick sanity check: Those are the columns with zero mean or zero variance or 100% zero percentage. Here we are using the `datatable` function of the [DT](https://rstudio.github.io/DT/) package that allows us to include interactive tables:
+
+```{r}
+stat %>%
+  mutate(zeros = zeros/nrow(train)*100) %>%
+  filter(mean == 0 | sd == 0 | zeros == 100) %>%
+  DT::datatable()
+```
+
+We confirm that those three meta properties alway occur together and that no other zero-variance columns exist. The latter fact is already indicated by no column having less than 60% zeros, but sanity checks are always useful. Now we can remove these columns going forward. (Check out the code for dplyr's handy `one_of` function in the select statement):
+
+```{r}
+foo <- stat %>%
+  filter(sd > 0) %>%
+  .$feature
+
+train <- train %>%
+  select(ID, target, one_of(foo))
+```
+
+Now we have only 4727 feature columns left! Hurray! ;-) More seriously, though: even if 256 removed columns is only a small percentage it nonetheless moves us closer to an understanding of this data set and a more accurate prediction.
+
+
+### Correlations with *target*
+
+Since we are primarily interested in correlations of our features with the *target* variable we can simplify the overall correlation matrix by computing only a correlation vector.
+
+```{r}
+foo <- train %>%
+  select(-ID, -target) %>%
+  cor(train$target, method = "spearman") %>%
+  as.tibble() %>%
+  rename(cor = V1)
+
+stat <- stat %>%
+  filter(sd > 0) %>%
+  bind_cols(foo)
+```
+
+This is the distribution of the resulting correlation coefficients:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 4", fig.height=3.5, out.width="100%"}
+stat %>%
+  ggplot(aes(cor)) +
+  geom_histogram(bins = 50, fill = "red") +
+  labs(x = "Correlation coefficient") +
+  ggtitle("Correlation of anonymous vs target")
+```
+
+We find:
+
+- None of the correlation coefficients are noteworthy. The distribution is pretty centred around 0 and never even gets close to any remotely significant values. At first glance, there seem to be no smoking guns in our feature set.
+
+
+### A Note on Pearson vs Spearman + an example correlation
+
+With respect to other kernels that study correlation it is important to note here that we are using the "Spearman" (rank) correlation coefficients rather than the "Pearson" ones. The difference is that Pearson's method is looking for *linear* relationships whereas Spearman tests for simply monotonic ones (by comparing the ranks of the columns). This is important in our case since we know that our *target* distribution is heavily skewed over several orders of magnitude (see Fig. 1). Linear relationships are therefore more unlikely and the Spearman coefficient is a better starting point.
+
+Nonetheless, let's be thorough and investigate the Pearson statistics as well. This is the corresponding distribution:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 5", fig.height=3, out.width="100%"}
+foo <- train %>%
+  select(-ID, -target) %>%
+  cor(train$target, method = "pearson") %>%
+  as.tibble() %>%
+  rename(cor_p = V1)
+
+stat <- stat %>%
+  filter(sd > 0) %>%
+  bind_cols(foo)
+
+stat %>%
+  ggplot(aes(cor_p)) +
+  geom_histogram(bins = 50, fill = "red") +
+  labs(x = "Correlation coefficient") +
+  ggtitle("Pearson correlation of anonymous vs target")
+```
+
+Here we see that some correlation coefficients extend to higher values. However, we barely reach 0.25 which is not significant in any way. To visualise this, here is the correlation matrix for the 10 "strongest" features plus *target* as well as the scatterplot for *the* strongest feature:
+
+```{r split=FALSE, message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 6", out.width="100%"}
+foo <- stat %>%
+  arrange(desc(cor_p)) %>%
+  head(5) %>%
+  .$feature
+
+p1 <- train %>%
+  select(target, one_of(foo)) %>%
+  ggcorr(method = c("pairwise","pearson"), label = TRUE, angle = -0, hjust = 0.2) +
+  coord_flip() +
+  ggtitle("5 strongest Pearson correlations")
+
+p2 <- train %>%
+  select(target, `555f18bd3`) %>%
+  ggplot(aes(target, `555f18bd3`)) +
+  geom_point(col = "blue") +
+  labs(y = "Feature '555f18bd3'") +
+  ggtitle("Strongest correlation explored")
+
+grid.arrange(p1, p2, layout_matrix = rbind(c(1,2)))
+```
+
+We find:
+
+- There are some moderately strong relationships between the anonymised features. The *target* correlation are of course what we see above. Every single coefficient is positive which hints at an effect that we will soon explore in more detail.
+
+- The scatter plot shows us a moderate relation between the variables that is however dominated by the large number of zeros in the anonymous feature "555f18bd3". This is more interesting than I would have expected and merits further analysis.
+
+
+### Example correlation explored - the curse of the zeros
+
+Let's take these two variables, the *target* and the prosaic "555f18bd3", and plot them in linear and log-log space and, crucially, without the zeros in the "555f18bd3" feature:
+
+```{r split=FALSE, message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 7", out.width="100%"}
+p1 <- train %>%
+  ggplot(aes(target, `555f18bd3`)) +
+  geom_point(col = "blue") +
+  labs(y = "Feature '555f18bd3'") +
+  ggtitle("Strongest correlation: linear")
+
+p2 <- train %>%
+  ggplot(aes(target, `555f18bd3`)) +
+  geom_point(col = "blue") +
+  labs(y = "Feature '555f18bd3'") +
+  ggtitle("log-log") +
+  scale_x_log10() +
+  scale_y_log10()
+
+foo <- train %>%
+  filter(`555f18bd3` > 0) %>%
+  select(target, `555f18bd3`)
+
+lin_pearson <- cor(foo$target, foo$`555f18bd3`)
+lin_spearman <- cor(foo$target, foo$`555f18bd3`, method = "spearman")
+log_pearson <- cor(log(foo$target), log(foo$`555f18bd3`))
+log_spearman <- cor(log(foo$target), log(foo$`555f18bd3`), method = "spearman")
+
+p3 <- train %>%
+  filter(`555f18bd3` > 0) %>%
+  ggplot(aes(target, `555f18bd3`)) +
+  geom_point(col = "red") +
+  geom_smooth(method = "lm") +
+  labs(y = "Feature '555f18bd3'") +
+  ggtitle(str_c("linear w/o zeros: cor = ", sprintf("%.2f", lin_pearson)))
+
+p4 <- train %>%
+  filter(`555f18bd3` > 0) %>%
+  ggplot(aes(target, `555f18bd3`)) +
+  geom_point(col = "red") +
+  geom_smooth(method = "lm") +
+  labs(y = "Feature '555f18bd3'") +
+  ggtitle(str_c("log-log w/o zeros: cor = ", sprintf("%.2f", log_pearson))) +
+  scale_x_log10() +
+  scale_y_log10()
+
+grid.arrange(p1, p2, p3, p4, layout_matrix = rbind(c(1,2),c(3,4)))
+```
+
+We find:
+
+- In log-log space we already see a trend between the two variables without removing any entries (upper right).
+
+- With zeros removed, the linear representation in the lower left has a high Pearson correlation coefficient of `r sprintf("%.2f", lin_pearson)` which is primarily caused by the cluster of points in the upper right corner of that plot. The corresponding Spearman coefficient is `r sprintf("%.2f", lin_spearman)` which is more robust against this kind of effect.
+
+- In log-log space, however, we still see a certain trend even if the scatter is large and the overall Pearson coefficient of `r sprintf("%.2f", log_pearson)` is nothing to write home about. The non-parametric design of the Spearman coefficient is a distinct advantage here since the ranks don't change and the Spearman value remains the same.
+
+
+We can visualise the distributions of the zero-removed feature and *target* variable with the help of the `ggMarginal` tool provided by the `ggExtra` [package](https://cran.r-project.org/web/packages/ggExtra/). Here we add histograms to the scatterplot margins:
+
+```{r split=FALSE, message=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 8", out.width="100%"}
+p <- train %>%
+  filter(`555f18bd3` > 0) %>%
+  ggplot(aes(target, `555f18bd3`)) +
+  geom_point(col = "red") +
+  geom_smooth(method = "lm") +
+  scale_x_log10() +
+  scale_y_log10() +
+  coord_flip() +
+  labs(y = "Feature '555f18bd3'")
+ggMarginal(p, type="histogram", fill = "blue", size = 3, bins = 50)
+```
+
+We find:
+
+- The distribution of the *target* variable (vertical) does not look particularly different from the overall histogram in Fig. 1. One exception to this general impression is the cluster of high-values data points in the upper right corner.
+
+- The distribution of the "555f18bd3" feature is more concentrated around values of 1e6 - 1e7. The upper-right corner cluster also leads to a distinct peak here.
+
+**In summary**, while the observed trend is not very strong the clustering is interesting and the opportunity to explore the distribution of the non-zero fraction of the anonymous features looks promising.
+
+
+### From zero to Spearman - effective correlation coefficients
+
+In first order, we will thus ignore the zero entries and see where that takes us. Of course, the number and distribution of zero-value entries could contain useful information and we will have a look at that later on. Here, we will compute the Spearman correlation coefficients without the zero values (pairwise vs the *target*):
+
+
+```{r warning=FALSE, message=FALSE}
+foo <- train %>%
+  na_if(0) %>%
+  select(-ID, -target) %>%
+  cor(train$target, use = "pairwise", method = "spearman") %>%
+  as.tibble() %>%
+  rename(cor_s0 = V1)
+
+stat <- stat %>%
+  bind_cols(foo) %>%
+  mutate(non_zero = nrow(train) - zeros)
+```
+
+
+Then we plot what one could call the "effective" correlation coefficients and look at their distribution. Here we need to take into account that some features might only have 2 non-zero entries in which case a formal correlation would be easy to find yet rather useless. Thus, in the density plot below we distinguish between groups of features with different numbers of non-zero values:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 8", fig.height=4, out.width="100%"}
+stat %>%
+  filter(non_zero > 10) %>%
+  ggplot(aes(cor_s0)) +
+  geom_density(data = stat, aes(cor_s0), fill = "grey30") +
+  geom_density(fill = "blue", alpha = 0.5) +
+  geom_density(data = stat %>% filter(non_zero > 50), aes(cor_s0), fill = "red") +
+  labs(x = "Spearman correlation coefficients") +
+  ggtitle("Correlation without zero entries for number of\nnon-zero entries > 0 (grey), > 10 (blue), > 50 (red)")
+```
+
+We find:
+
+- The strongest correlations (up to 1 or -1) are indeed spurious due to very small numbers of valid entries. This is particularly true for the negative correlation coefficients (indicating anti-correlations).
+
+- The distribution itself is markedly shifted towards positive numbers, with a peak at around 0.25. While such a coefficient is far from significant it might indicate a clustering as we had seen it in our example above.
+
+- For a restriction to > 50 non-zero entries we still end up with correlation coefficients almost reaching 0.75 - a number at which things can start to become interesting.
+- 
+
+### A closer look: The new strongest correlations
+
+Let's go ahead and inspect these relatively strong correlations in detail. Here is a table of the 34 features with more than 50 non-zero entries and an (effective) Spearman coefficient of more than 0.6. Remember that those are rank correlations that are less affected by individual strong outliers:
+
+```{r}
+stat %>%
+  filter(non_zero > 50 & cor_s0 > 0.6) %>%
+  arrange(desc(cor_s0)) %>%
+  select(feature, mean, sd, non_zero, cor_s0) %>%
+  DT::datatable() %>%
+  DT::formatRound(columns=c('mean', 'sd', 'cor_s0'), digits=2)
+```
+
+We want to look at several of these correlations, so the best thing to do is to define a short helper function that will save us some typing going forward (and also safe us from potential typos). It will take the name of the anonymous feature as a string to plot the scatterplot of this feature vs *target*. We will also add simple linear fit with (default) 95% confidence ranges:
+
+```{r}
+plot_cor <- function(anon, pcol) {
+  train %>%
+    select(target, x = !!sym(anon)) %>%
+    filter(x > 0) %>%
+    ggplot(aes(x, target)) +
+    geom_smooth(method = "lm", col = "black") +
+    geom_point(color = pcol) +
+    scale_x_log10() +
+    scale_y_log10() +
+    labs(x = str_c("Feature ", anon))
+ }
+```
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 9", out.width="100%"}
+p1 <- plot_cor("7ee833549", "red")
+p2 <- plot_cor("0fb0d19af", "blue")
+p3 <- plot_cor("afac06058", "darkgreen")
+p4 <- plot_cor("601d54a3a", "orange")
+
+grid.arrange(p1, p2, p3, p4, layout_matrix = rbind(c(1,2),c(3,4)))
+```
+
+We find:
+
+- Those scatterplots look all fairly similar and this consistency is interesting in itself. We see at clustering at the upper right corner (similar as for the other anonymous feature before) for high values of *target* and the feature. There is a bit of downward scatter but it's not too disruptive.
+
+- Just below `feature == 1e5` there is a large range of *target* values but it rarely extends up to the level of the corner cluster.
+
+- The odd plot out is of course feature "afac06058" which still shows the general trend but pretty much misses the corner cluster and also the points below 1e5. Instead, most of the data is found from above 1e6 right up to 1e7.
+
+
+Just to check what the few (and not very convincing) anti-correlations look like: Here are the 4 strongest ones in table form:
+
+```{r}
+stat %>%
+  filter(non_zero > 50 & cor_s0 < -0.3) %>%
+  arrange(cor_s0) %>%
+  select(feature, mean, sd, non_zero, cor_s0) %>%
+  DT::datatable(options = list(pageLength = 4)) %>%
+  DT::formatRound(columns=c('mean', 'sd', 'cor_s0'), digits=2)
+```
+
+And here are the plots (giving more mileage to our function):
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 10", out.width="100%"}
+p1 <- plot_cor("79c8119ae", "red")
+p2 <- plot_cor("7f80a96a9", "blue")
+p3 <- plot_cor("d01cc5805", "darkgreen")
+p4 <- plot_cor("e059a8594", "orange")
+
+grid.arrange(p1, p2, p3, p4, layout_matrix = rbind(c(1,2),c(3,4)))
+```
+
+We find:
+
+- The difference here to the plots above is that there are (i) very few data points at low feature values (especially in the upper panels) and (ii) *target* ranges have shifted with respect to the pattern in the previous plots.
+
+- The second effect is most clearly visible in the lower right panel where the groups of high *target* values are confined to low feature values.
+
+- The lower left panel doesn't really contain anything that I would call a credible correlation.
+
+
+# Feature Engineering
+
+Now that we have gained a reasonably good understanding of the feature properties we can start deriving new and hopefully more useful features from them. In principle, the concept of "Feature Engineering" already encompasses tasks such as the removal of certain features (e.g. the zero-variance ones above). In this Kernel, however, we use the term specifically for the extraction of new features.
+
+Specifically, we will explore the potential of clustering in the *target* vs feature parameter space and the comparison of zero vs non-zero entries. And most likely a couple of other things that we will discover in the meantime.
+
+As in other kernels of mine I prefer to define all the new features in a common code block (below) to keep things organised. Note that this code block will change as the analysis progresses.
+
+```{r}
+names <- colnames(train %>% select(-ID, -target))
+
+registerDoParallel(cores=3)
+
+foo <- foreach(i=1:length(names), .combine=cbind) %dopar% {
+#foo <- foreach(i=1:15, .combine=cbind) %dopar% {
+  
+  anon <- names[i]
+
+  train %>%
+    select(x = !!sym(anon)) %>%
+    mutate(x = as.factor(case_when(
+      x < 1e-5 ~ "zero",
+      x > 0 & x <= 1e5 ~ "low",
+      x > 1e5 & x <= 1e6 ~ "mid",
+      x > 1e6 & x <= 1e7 ~ "high",
+      x > 1e7 ~ "top"
+    ))) %>%
+  rename(!!sym(anon) := x)
+}
+
+tgroup <- train[1:2] %>%
+  bind_cols(foo)
+
+foo <- foreach(i=1:length(names), .combine=rbind) %dopar% {
+#foo <- foreach(i=1:2, .combine=rbind) %dopar% {
+  
+  anon <- names[i]
+  
+  bar <- tgroup %>%
+    select(target, x = !!sym(anon)) %>%
+    group_by(x) %>%
+    summarize(med = median(target)) %>%
+    spread(key = x, value = med) %>%
+    mutate(feature = anon)
+  
+  if(!"low" %in% colnames(bar)) {bar <- bar %>% mutate(low = NA)}
+  if(!"mid" %in% colnames(bar)) {bar <- bar %>% mutate(mid = NA)}
+  if(!"high" %in% colnames(bar)) {bar <- bar %>% mutate(high = NA)}
+  if(!"top" %in% colnames(bar)) {bar <- bar %>% mutate(top = NA)}
+  
+  bar
+}
+
+stat <- foo %>%
+  rename(median_zero = zero, median_low = low, median_mid = mid, median_high = high, median_top = top) %>%
+  right_join(stat, by = "feature")
+  
+row_stat <- tibble(ID = train$ID,
+              target = train$target,
+              row_sum = rowSums(train[-1:-2]),
+              non_zero_ct = rowSums(train[-1:-2] > 0))
+```
+
+
+## Feature - *target* space clustering
+
+Our first feature is a binning of the anonymous features by their values into 5 distinct groups: "zero" for zero values, "low" for values of `>0 & < 1e5`, "mid": `> 1e5 & <= 1e6`, "high": `> 1e6 & <= 1e7`, and  "top": `> 1e7`. This grouping is inspired by the example correlations plots above. For instance: The "top" group contains the "right-corner cluster" if present. The goal here is to detect features like this cluster and to characterise their properties from a global perspective (without plotting every single correlation).
+
+What the engineering code (above) does is the following: We loop through each feature to compute the grouping. For this we use R's parallel capabilities via the `foreach` package. This saves time and gives us an opportunity to practice our parallelising skills. Since each loop is independent the parallel code is rather straight forward. Note, that we are making use of the `tidyverse` quotation mechanism here to pass variable column names to `dplyr` functions. We then specify how many parallel cores to use and stitch together the final table using row-wise binding.
+
+This provides us with a grouped training data set, which is already very useful in itself since it will allow us to plot distributions. To decide which distributions to analyse we will go a step further and compute the median *target* values for each group and feature and add this information to our trusty overview "stats" table. This is what this table looks like now:
+
+```{r}
+stat %>%
+  select(feature, everything()) %>%
+  DT::datatable(options = list(pageLength = 10)) %>%
+  DT::formatRound(columns=c('mean', 'sd', 'cor_s0'), digits=2)
+```
+
+And this the distribution of the medians from each feature. Here we use a *ridgeline plot* courtesy of the great [ggridges](https://cran.r-project.org/web/packages/ggridges/) package (left-side panel). These plots allow us to compare the densities for different categories without having them overlap completely. In addition, we plot the frequency of each group in our "stat" overview table in the right-side panel:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 11", out.width="100%"}
+p1 <- stat %>%
+  gather(median_zero, median_low, median_mid, median_high, median_top, key = "group", value = "med") %>%
+  mutate(group = as.factor(group)) %>%
+  mutate(group = fct_relevel(group,
+                             "median_zero", "median_low", "median_mid", "median_high", "median_top")) %>%
+  # filter(!is.na(med) & group != "median_zero") %>%
+  filter(!is.na(med)) %>%
+  ggplot(aes(med, group, fill = group)) +
+  geom_density_ridges(alpha = 0.5, bandwidth = 0.15) +
+  #geom_density(alpha = 0.5, bw = 0.1) +
+  scale_x_log10() +
+  theme(legend.position = "none") +
+  labs(x = "target median", y = "feature value grouping")
+
+p2 <- stat %>%
+  gather(median_zero, median_low, median_mid, median_high, median_top, key = "group", value = "med") %>%
+  mutate(group = as.factor(group)) %>%
+  mutate(group = fct_relevel(group,
+                             "median_zero", "median_low", "median_mid", "median_high", "median_top")) %>%
+  # filter(!is.na(med) & group != "median_zero") %>%
+  filter(!is.na(med)) %>%
+  ggplot(aes(group, fill = group)) +
+  geom_bar() +
+  labs(x = "") +
+  theme(legend.position = "none", axis.text.y = element_blank()) +
+  coord_flip()
+
+grid.arrange(p1, p2, layout_matrix = rbind(c(1,1,1,2,2)))
+```
+
+We find:
+
+- In terms of the densities the most obvious finding is the narrow distribution of the "zero" group compared to the other groups. This is a curious result since it suggests that the *target* medians are very well constrained in a relatively narrow range. Note the logarithmic x-axis.
+
+- The "low" group density is clearly the broadest, whereas the other 3 groups are roughly comparable. From "low" to "top" there is a general shift of the distribution peak to larger *target* values.
+
+- The group counts in the right panel are sufficiently similar (the scale is linear now). The "zero" group is the largest one and the "low" group the smallest, but the difference is only around 25%. We're definitely comparing similar sample sizes here.
+
+
+The previous density plot used a relatively large smoothing kernel bandwidth to emphasise the large scale shifts between the distribution medians. Now we will have a closer look at their finer structure. This structure is difficult to examine for all groups at the same time. Therefore we plot 2 panels with different bandwidths below: only the "zero" group at the left and the other three groups stacked on the right. Note, that the colours don't align between figures 11 and 12:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 12", out.width="100%"}
+p1 <- stat %>%
+  gather(median_zero, median_low, median_mid, median_high, median_top, key = "group", value = "med") %>%
+  filter(group == "median_zero") %>%
+  mutate(group = as.factor(group)) %>%
+  filter(!is.na(med)) %>%
+  ggplot(aes(med, fill = group)) +
+  geom_density(alpha = 0.5, bw = 5e-4) +
+  scale_x_log10(breaks = c(2e6, 2.25e6, 2.5e6)) +
+  theme(legend.position = "none") +
+  labs(x = "target median for feature zero group") +
+  ggtitle("Fine structure of group densities")
+
+p2 <- stat %>%
+  gather(median_zero, median_low, median_mid, median_high, median_top, key = "group", value = "med") %>%
+  mutate(group = as.factor(group)) %>%
+  mutate(group = fct_relevel(group,
+                             "median_zero", "median_low", "median_mid", "median_high", "median_top")) %>%
+  # filter(!is.na(med) & group != "median_zero") %>%
+  filter(!is.na(med) & group != "median_zero") %>%
+  mutate(group = fct_recode(group, low = "median_low", mid = "median_mid",
+                            high = "median_high", top = "median_top")) %>%
+  ggplot(aes(med, fill = group)) +
+  geom_density(alpha = 0.5, bw = 2e-2, position = "stack") +
+  scale_x_log10() +
+  labs(x = "target median", fill = "factor group") +
+  theme(legend.position = "top")
+
+grid.arrange(p1, p2, layout_matrix = rbind(c(1,2)))
+```
+
+We find:
+
+- The "zero medians" group has distinct, prominent peaks around `target == 2.25e6`, where the strongest (double-peaked) response is located. The secondary peaks suggest lower frequencies but are still significant compared to the broad baseline. Overall, the vast majority of the *target* medians in the `feature == 0` group appears to be contained in very narrow bins. Compare the *target* distribution in Fig. 1.
+
+- Under closer scrutiny also the other feature groups show a certain degree of "spikiness" albeit over several orders of magnitude in the *target* medians. Note that we are stacking the density curves which affects their relative zero levels. Many peaks coincide among the groups in terms of position but can differ strongly in terms of relative height.
+
+- The top group practically exclusively contains the a sizeable fraction of medians at the very high end of *target* values. Those will likely correspond to the clustered that we noticed earlier in our analysis.
+
+
+Now: what do these plots tell us about the individual features? Well, in order to visualise this connection we will plot the distribution of the *target* for each group ("zero" to "top") in a few individual features. If you are following the code, then this is the `tgroup` data frame we composed in the engineering code block. We will write another short convenience function:
+
+```{r}
+plot_group <- function(anon, leg) {
+  tgroup %>%
+    mutate(group = fct_relevel(!!sym(anon), "zero", "low", "mid", "high", "top")) %>%
+    ggplot(aes(target, fill = group)) +
+    geom_density(bw = 0.2, alpha = 0.5) +
+    scale_x_log10() +
+    theme(legend.position = leg) +
+    ggtitle(str_c("Feature groups ", anon))
+ }
+```
+
+To illustrate the resulting density distributions we choose the same features as in Fig. 9 above. Note the logarithmic x-axis:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 13", out.width="100%"}
+p1 <- plot_group("7ee833549", "none")
+p2 <- plot_group("0fb0d19af", "right")
+p3 <- plot_group("afac06058", "none")
+p4 <- plot_group("601d54a3a", "none")
+
+grid.arrange(p1, p2, p3, p4, layout_matrix = rbind(c(1,2),c(3,4)))
+```
+
+We find:
+
+- The "zero" group has a very broad distribution that peaks around comparable *target* values for each feature. The narrow distribution of medians in the zero group (Fig. 11) suggests that all features look similar in this respect. Therefore, the "zeros" appear to have little potential for predicting *target* values directly. (We can't exclude that there are other patterns including the zeros which can be exploited; and perhaps we will encounter some of them in our continued analysis.)
+
+- Since our data set is so sparse this "zero group" density is comparable to the global *target* distribution in Fig. 1.
+
+- As expected from Fig. 11 we see more diversity in the other 4 groups. While the "top" group is typically responsible for the cluster of high *target* values it can also contain lower-value data. The "low" group rarely overlaps with the "top" group. The "mid" group density is broad and might be of limited usefulness.
+
+**In summary**, the group-binned *target* values and medians have potential for improving predictions when removing the "noise" of the zero entries. In its most straight-forward application, replacing the global median with the group medians should already lead to an improvement of the prediction score.
+
+
+## Row properties
+
+After dissecting the features (i.e. columns) we will now turn our attention toward how those features contribute to individual observations (i.e. rows). Note, that we are still excluding the relatively small number of constant zero features in this analysis. The row-wise properties are being extracted in the engineering code block at the beginning of this section.
+
+
+### Row sums
+
+We begin by simply adding up the sum of all feature values in per row. We then display the histogram of the resulting sums on top of the 2d histogram vs the *target* values. A simple linear fit is added to visualise the formal trend. This time we plot the histogram and 2d histogram separately and adjust the margins by hand to align the two x-axes:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 14", out.width="100%"}
+p1 <- row_stat %>%
+  ggplot(aes(row_sum)) +
+  geom_histogram(bins = 50, fill = "blue") +
+  scale_x_log10() +
+  labs(x = "") +
+  theme(plot.margin = margin(l = 0.8, r = 2, unit = "cm")) +
+  ggtitle("Sum of values in each row alone and vs target")
+
+p2 <- row_stat %>%
+  ggplot(aes(row_sum, target)) +
+  #geom_point() +
+  geom_bin2d(bins = c(30,30)) +
+  geom_smooth(method = "lm", col = "red") +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme(legend.position = "right")
+
+grid.arrange(p1, p2, layout_matrix = cbind(c(1,1,2,2,2,2)))
+```
+
+We find:
+
+- The row sums are primarly above 1e7 with a distribution that peaks around 1e9. 
+
+- The 2d histogram shows a global trend of clustering toward higher values in both variables. However, the scatter is large and the data fill most of the relevant parameter space in a way that does not suggest a strong correlation overall.
+
+
+### Number of non-zero row entries
+
+Next are the number of *non-zero entries* per row. Those will tell us more about how the sparcity is distributed in our *training* data frame. Along with the *non-zero* histogram we also plot a scatter plot against the *row sums* from the previous section, plus a contour plot against *target*:
+
+```{r split=FALSE, fig.align = 'default', warning = FALSE, fig.cap ="Fig. 15", out.width="100%"}
+p1 <- row_stat %>%
+  ggplot(aes(non_zero_ct, target)) +
+  geom_density_2d() +
+  #geom_smooth(method = "loess") +
+  scale_x_log10(breaks = c(1,2,10,20,100,200,1000)) +
+  scale_y_log10()
+
+p2 <- row_stat %>%
+  ggplot(aes(non_zero_ct)) +
+  geom_histogram(bins = 50, fill = "red") +
+  scale_x_log10(breaks = c(1,2,10,20,100,200,1000)) +
+  theme(plot.margin = margin(l = 0.6, r = 0.1, unit = "cm")) +
+  ggtitle("Number of non-zero entries per row") +
+  NULL
+
+p3 <- row_stat %>%
+  ggplot(aes(non_zero_ct, row_sum)) +
+  geom_point() +
+  geom_smooth(method = "loess") +                                                                              
+  scale_x_log10(breaks = c(1,2,10,20,100,200,1000)) +
+  scale_y_log10() +
+  facet_zoom(x = non_zero_ct > 800, y = row_sum > 5e9, zoom.size = 1)
+
+grid.arrange(p1, p2, p3, layout_matrix = cbind(c(1,3),c(2,3)))
+```
+
+We find
+
+- There are typically 100 - 200 *non-zero* features per row - up to 1000+ for rare cases (upper right panel). Remember that *train* has about 4700 columns without the zero-variance features.
+
+- The contour plot for *non-zero count* vs *target* in the upper left panel reveals little relation between the two features other than that small numbers of *non-zero* values are more unlikely to lead to small *target* variables.
+
+- A few rows are having only 1 or 2 non-zero entries. The scatter plot vs *row sum* (lower right) reveals that within these rows the scatter is several orders of magnitude. Overall, however, there is a clear trend that rows with more *non-zero* entries have larger *row sums*. For the majority of cases the scatter is within about a factor of 100.
+
+- Curiously, for the highest values in the scatter plot there is a remarkable strong relationship with almost no variance. The lower panel is extended to the left using a zoom-in of the relevant area via the great `facet_zoom` tool of the [ggforce package](https://cran.r-project.org/web/packages/ggforce)). This data looks very suspicious.
+
+
+## Duplicated rows
+
+Just to be sure, let's check whether any duplicated rows are present in our *training* data. We find that there are only two rows:
+
+```{r}
+foo <- train %>%
+  select(-ID, -target)
+
+dup <- duplicated(foo) | duplicated(foo, fromLast = TRUE)
+
+bar <- train %>% filter(dup)
+
+sum(dup)
+```
+
+Those are their row properties:
+
+```{r}
+row_stat %>% filter(ID %in% bar$ID)
+```
+
+A little `tidyr` trickery here: in order to find those two non-zero features among the thousands of columns we use the `gather` tool to turn our wide data frame into a tall one. There we can make use of the fact that all the random feature names have exactly 9 characters, and use a regular expression to match this length. We then filter out the zero entries and "transpose" back our data frame / tibble to its original format using the `spread` tool. (It's not exactly a transposition but you get the idea.)
+
+Those are the relevant features.
+
+```{r}
+bar %>%
+  gather(matches(".{9}"), key = "feature", value = "val") %>%
+  filter(val > 0) %>%
+  spread(key = feature, value = val)
+```
+
+We find that both rows have only 2 *non-zero* features with values of 1e7 each. Yet they lead to *target* values that are different by a factor of 2. Ultimately, this is of limited practical use since there are only 2 rows that are identical. Still; it gives us an idea of the intrinsic variance.
+
+
+---
+
+Thank you for reading this EDA. Have fun!

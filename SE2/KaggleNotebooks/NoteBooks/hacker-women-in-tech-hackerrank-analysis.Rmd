@@ -1,0 +1,1230 @@
+---
+title: "Hacker Women in Tech - HackerRank Analysis"
+output: 
+    html_document:
+        toc: yes
+        theme: cosmo
+        highlight: monochrome
+        code_folding: hide
+---
+
+### What is Hackerrank?
+  
+  In one line, Hackerrank is for Developers/Coders/Programmers, what Kaggle is Data Scientists/Analysts. HackerRank is a technology company that focuses on competitive programming challenges with an attempt to gamify the coding habit and also to act as a gateway for companies to connect with (Quality) Developers.
+
+
+### Some History of Hackerrank
+
+
+HackerRank, formerly known as InterviewStreet, founded by two NIT (National Institute of Technology) Trichy (India) alumni Vivek Ravisankar and Hari Karunanidhi. HackerRank is a Y Combinator-backed company, and was the first Indian company accepted into Y Combinator.
+
+
+### About the dataset and Survey
+
+
+
+* A total of 25,090 professional and student developers completed our 10-minute online survey.
+
+* The survey was live from October 16 through November 1, 2017.
+
+* The survey was hosted by SurveyMonkey and we recruited respondents via email from our community of over 3.4 million members and through social media sites.
+
+
+
+### Focus of this Analysis
+
+
+
+While this is a general survey dataset, the focus of this analysis is to understand **Women in Tech**. 
+
+
+
+![Depiction of Women in Tech](https://ischool.syr.edu/infospace/wp-content/files/2016/11/women-in-tech.jpg)
+
+
+
+Women in Tech is with no doubt a minority with so many things all around the world going around empowering women, wage gap and so on. Hence, Women in Tech has been prioritized in this analysis to see if any of the outcome could help that initiative. 
+
+
+
+### **Actionable Insights - Executive Summary**
+
+
+
+* A very clear action is to motivate and appreciate Girls code from the early age. Bill Gates and Mark Zuckerberg have started coding while they were in high school. Organizations working to improve diversity in Tech should start right from there. **School**. Also Parents should be educated of how important it is for their Girl child to code 
+
+
+
+* Computer Science degree has been perceived as something that Boys do well. Universities need to market Computer Science Degree for all. It should make girls believe that it's something that's definitely their cup of Tea. **University CS Degree Marketing** Also adding mandatory Female quota to improve diversity in the classroom could help.
+
+
+
+* Proportion of Female Students seemed to be improving with respect to the past. It's very important to preserve them, hone them and take them forward without them dropping off due to lack of proper mentorship. Hence, Community like **Hacker Rank** should organize Coding Awareness events among those to ensure them their confidence. 
+
+
+
+* Developing Nations - especially African nations are leading in Female-to-Male Ratio. A specific survey targeted at them and also a **focus group discussion** with them could help us with take away to improve the larger community. 
+
+
+
+* Helping Women move up in ther Career from Junior Developer to Senior Developer is important. That's exactly the time when they're filled with many commitments in their personal life. It's important to push organizations that want to improve diversity to push **Sabbatical** for those women who want a long leave of absence with a surity of a job when they come back and also to **emrbace Women into jobs after a career gap**.
+
+
+
+* Adding up to the above point, Enabling **Remote/Flexible** Working environment will also help the larger goal. 
+
+
+
+* Defining a clear **learning path** for new comers - espcially with respect to the langauge that's on demand in the market - Javascript / Python. I'm obliged to mention that **Freecodecamp** does an amazing job in that - for completely free. 
+
+
+
+* While teaching to code, It's important to promote maintain an **online portfolio like github or a blog**. Because as *Cal Newport* says, *"If you don't produce, you won't thrive"*. Hence the projects (mini/major) or any other work of them either in the form of code or a blog post should be made published online. 
+
+
+
+* Along with the technical skills, It's also clear that hiring managers look for the ability to communicate well and to learn new. That makes it important to help those new learns, learn such **Soft Skills**.
+
+
+
+
+
+Let us read the main dataset and requried packages for our analysis. 
+
+
+
+```{r}
+
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, fig.width=9, fig.height=6)
+
+
+
+```
+
+
+
+```{r}
+
+values <- read.csv('../input/HackerRank-Developer-Survey-2018-Values.csv', header = T, stringsAsFactors = F)
+
+
+```
+
+
+
+```{r}
+
+library(dplyr)
+
+library(tidyr)
+
+library(ggplot2)
+
+library(plotly)
+
+library(knitr)
+
+library(ggthemes)
+
+library(tidytext)
+
+library(highcharter)
+
+options(highcharter.theme = hc_theme_538())
+
+
+values <- values %>% mutate(CountryNumeric = CountryNumeric2)
+```
+
+
+
+
+### Minority Check
+
+
+
+While we've been hearing that Women in Tech is underrepresented, Shouldn't we verify it? 
+  
+  
+  
+  
+```{r}
+
+
+
+values %>% group_by(q3Gender) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% mutate(n = (n/ sum(n)) * 100) %>% kable()
+
+values %>% group_by(q3Gender) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% mutate(n = (n/ sum(n)) * 100) %>% 
+  
+  hchart('column', hcaes(x = 'q3Gender', y = 'n', group = 'q3Gender')) %>% 
+  
+  hc_title(text = 'Minority Check') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Gender")) %>% 
+  
+  hc_yAxis(title = list(text = "Percentage of Respondents"),labels = list(format = "{value}%"), max = 100)
+
+```
+
+
+
+That answers. Considering this survey was completely randomized, A Ratio of approximately 16.5% to 83.4% (Female to Male Ratio) is nothing but a definite under-representation. 
+
+
+
+
+
+### Male vs Female Age of Beginning to code 
+
+
+
+
+
+```{r}
+
+
+
+values %>% group_by(q3Gender, q1AgeBeginCoding) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(q3Gender) %>% mutate(n = (n/ sum(n)) * 100) %>% kable()
+
+
+
+values %>%  filter(!q1AgeBeginCoding %in% '#NULL!') %>% 
+  
+  group_by(q3Gender, q1AgeBeginCoding) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% #ungroup() %>% group_by(q3Gender) %>% mutate(n = round((n/ sum(n)) * 100),2) %>% #ggplot() + geom_bar(aes(q3Gender, n, fill = q1AgeBeginCoding),stat = 'identity') + theme_fivethirtyeight()
+  
+  hchart('column', hcaes(x = 'q1AgeBeginCoding', y = 'n', group = 'q3Gender')) %>% 
+  
+  hc_title(text = 'Age when they started coding - Male vs Female - Numbers') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Age when coding is begun")) %>% 
+  
+  hc_yAxis(title = list(text = "Number of Respondents"))
+
+
+values %>%  filter(!q1AgeBeginCoding %in% '#NULL!') %>% 
+  
+  group_by(q3Gender, q1AgeBeginCoding) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(q3Gender) %>% mutate(n = round((n/ sum(n)) * 100),2) %>% #ggplot() + geom_bar(aes(q3Gender, n, fill = q1AgeBeginCoding),stat = 'identity') + theme_fivethirtyeight()
+  
+  hchart('column', hcaes(x = 'q1AgeBeginCoding', y = 'n', group = 'q3Gender')) %>% 
+  
+  hc_title(text = 'Age when they started coding - Male vs Female - Percentage') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Age when coding is begun")) %>% 
+  
+  hc_yAxis(title = list(text = "Percentage of Respondents"),labels = list(format = "{value}%"))
+
+
+```
+
+* This shows the first-mover advantage. While **22%** of men have started coding at the age of bracket of `11 - 15 yrs`, only **13%** of women have done so. 
+
+* Irony is that, even with the age bracket `5-10 yrs` Men's proportion is **4x** more than their female counterpart.
+
+
+
+This is clearly a problem with **Parenting** and also our School system which seems to emphasis Men to start coding at an early age while not exposing Girl kids to code at the same age as when Boys start coding. 
+
+
+
+### Does starting age of coding help in continuing coding to College?
+
+
+
+
+
+```{r}
+
+
+
+values %>% group_by(q3Gender, q5DegreeFocus) %>% 
+
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(q3Gender) %>% mutate(n = (n/ sum(n)) * 100) %>% kable()
+
+ 
+
+  values %>%  filter(!q5DegreeFocus %in% '#NULL!') %>% 
+
+group_by(q3Gender, q5DegreeFocus) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% #ungroup() %>% group_by(q3Gender) %>% mutate(n = round((n/ sum(n)) * 100),2) %>% #ggplot() + geom_bar(aes(q3Gender, n, fill = q1AgeBeginCoding),stat = 'identity') + theme_fivethirtyeight()
+  
+  hchart('column', hcaes(x = 'q5DegreeFocus', y = 'n', group = 'q3Gender')) %>% 
+  
+  hc_title(text = 'Degree Focus - Male vs Female - Numbers') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Degree Focus")) %>% 
+  
+  hc_yAxis(title = list(text = "Number of Respondents"))
+
+
+
+values %>%  filter(!q5DegreeFocus %in% '#NULL!') %>% 
+  
+  group_by(q3Gender, q5DegreeFocus) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(q3Gender) %>% mutate(n = round((n/ sum(n)) * 100),2) %>% #ggplot() + geom_bar(aes(q3Gender, n, fill = q1AgeBeginCoding),stat = 'identity') + theme_fivethirtyeight()
+  
+  hchart('column', hcaes(x = 'q5DegreeFocus', y = 'n', group = 'q3Gender')) %>% 
+  
+  hc_title(text = 'Degree Focus - Male vs Female - Percentage') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Degree Focus")) %>% 
+  
+  hc_yAxis(title = list(text = "Percentage of Respondents"),labels = list(format = "{value}%"))
+
+
+```
+
+
+
+As it's obvious, Men have pursued more Computer Science degree while Women haven't. One thing to note here is the observer shouldn't fall for the percentage point difference fallacy here. We're currently talking about a selective sample - which visits Hackerrank - which is already supposed to be fond of Computers and Programming.  
+
+
+
+
+
+As it's obvious, Men have pursued more Computer Science degree while Women haven't. One thing to note here is the observer shouldn't fall for the percentage point difference fallacy here. We're currently talking about a selective sample - which visits Hackerrank. 
+
+
+
+```{r}
+
+
+
+values %>% group_by(q3Gender, q5DegreeFocus) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(q5DegreeFocus) %>% mutate(n = (n/ sum(n)) * 100) %>% kable()
+
+
+
+values %>%  filter(!q5DegreeFocus %in% c('#NULL!','')) %>% 
+  
+  group_by(q3Gender, q5DegreeFocus) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(q5DegreeFocus) %>% mutate(n = round((n/ sum(n)) * 100),2) %>% #ggplot() + geom_bar(aes(q3Gender, n, fill = q1AgeBeginCoding),stat = 'identity') + theme_fivethirtyeight()
+  
+  hchart('column', hcaes(x = 'q3Gender', y = 'n', group = 'q5DegreeFocus')) %>% 
+  
+  hc_title(text = '% of Male/Female with respect to the Degree') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Gender")) %>% 
+  
+  hc_yAxis(title = list(text = "Percentage of Respondents"),labels = list(format = "{value}%"))
+
+
+```
+
+
+
+Out of the entire Computer Science crowd that was surveyed here, only 16% are Women and the rest 83% are Men. 
+
+
+
+So forget about Women in Tech being underrepresented, Women who study relevant course (Technical Education) itself is very lagging. 
+
+
+
+### Women - Students : Sign of Hope!
+
+
+
+```{r}
+
+
+
+values$is_student <- ifelse(values$q8Student == '','Developers','Students')
+
+
+
+
+
+values %>% group_by(q3Gender, is_student) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(is_student) %>% mutate(n = (n/ sum(n)) * 100) %>% kable()
+
+
+
+
+
+values %>% group_by(q3Gender, is_student) %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% count() %>% ungroup() %>% group_by(is_student) %>% mutate(n = round((n/ sum(n)) * 100),2) %>% 
+  
+  hchart('column', hcaes(x = 'q3Gender', y = 'n', group = 'is_student')) %>% 
+  
+  #hchart('column', hcaes(x = is_student, y = n, group = q3Gender)) %>% 
+  
+  hc_title(text = 'Students vs Developers - Male vs Female') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Gender")) %>% 
+  
+  hc_yAxis(title = list(text = "Percentage of Respondents"),labels = list(format = "{value}%"))
+
+
+
+
+
+```
+
+
+
+This should ideally complete the story of underrepresenation. Because, of the entire female respondents close to 52% are students which means, even within the Female respondents Developers who are female (Women in Tech) is a minority. While for very obvious reasons that's not the case with Male. 
+
+
+
+#### A glimpse of hope!
+
+
+
+But on the flip side, this is one sign of hope. How? With more Women Students participating in Hackerrank, it sounds like the underrespented community has finally got their wake up call and have started to be active on Developer Forums and striving for a better future, thus shaping up the future of Women in Tech.
+
+
+
+### Female to Male Ratio - Africa Rocks!
+
+
+
+Let us see create a new metric Female to Male Ratio which is nothing but Female count divided by Male count. With that metric, let us see which country does it better.
+
+
+
+#### Top Countries:
+
+
+
+```{r}
+
+
+values %>% group_by(CountryNumeric) %>% count() %>% 
+
+hchart("treemap", hcaes(x = 'CountryNumeric', value = 'n', color = 'n')) %>% 
+
+  hc_title(text = 'Countries from where overall HackerRank respondents come from') 
+
+
+
+```
+
+
+
+
+
+```{r}
+
+
+values %>%  group_by(CountryNumeric) %>% mutate(count = n()) %>% 
+
+  filter(count > 50) %>% 
+
+  filter(q3Gender %in% c('Male','Female')) %>% 
+
+  group_by(CountryNumeric,q3Gender) %>% count() %>% 
+
+  spread(q3Gender, n) %>% mutate(F2M = Female/Male) %>% arrange(desc(F2M)) %>% 
+
+  hchart('column', hcaes(x = 'CountryNumeric', y = 'F2M', colorByPoint = 'T')) %>% 
+
+  hc_title(text = 'Countries ordered in Female-to-Male Ratio') %>%
+
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+
+  hc_add_theme(hc_theme_darkunica()) %>%
+
+  hc_xAxis(title = list(text = "Countries"))
+
+
+
+  
+
+```
+
+
+
+```{r}
+
+
+
+# light grey boundaries
+
+l <- list(color = toRGB("grey"), width = 0.5)
+
+
+
+# specify map projection/options
+
+g <- list(
+
+  showframe = FALSE,
+
+  showcoastlines = FALSE,
+
+  projection = list(type = 'Mercator')
+
+)
+
+
+F2M_countries <- values %>%  group_by(CountryNumeric) %>% mutate(count = n()) %>% 
+
+  filter(count > 50) %>% 
+
+  filter(q3Gender %in% c('Male','Female')) %>% 
+
+  group_by(CountryNumeric,q3Gender) %>% count() %>% 
+
+  spread(q3Gender, n) %>% mutate(F2M = Female/Male) %>% arrange(desc(F2M))
+
+
+
+p <- plot_geo(F2M_countries,locationmode = 'country names') %>%
+
+  add_trace(
+
+    z = ~F2M, color = ~F2M, colors = 'YlGnBu', 
+
+    text = ~CountryNumeric, locations = ~CountryNumeric, marker = list(line = l)
+
+    
+
+  ) %>%
+
+  colorbar(title = 'Countries', tickprefix = '#') %>%
+
+layout(
+  
+  title = 'Countries with Female-to-Male Ratio',
+  
+  geo = g
+  
+)
+
+
+
+p
+
+
+
+```
+
+
+It's not your US, UK or India with a better F2M ratio - It's `Sudan`, `Republic of Moldova` and `Palestine`. The Females in these countries seemed to be on a mission to stand up and code to change their life's situation.
+
+
+```{r}
+
+
+values %>%  group_by(CountryNumeric) %>% mutate(count = n()) %>% 
+
+  filter(count > 50) %>% 
+
+  filter(q3Gender %in% c('Male','Female')) %>% 
+
+  group_by(CountryNumeric,q3Gender) %>% count() %>% 
+
+  spread(q3Gender, n) %>% mutate(F2M = Female/Male) %>% arrange(desc(F2M))  
+
+
+
+  
+
+```
+
+### Job Role - excluding Students
+
+
+
+#### Male vs Female  - Job Level
+
+
+
+**Male**
+
+
+
+```{r}
+
+
+
+values %>% filter(q3Gender %in% c('Male')) %>%  filter(!q8JobLevel %in% c('Student','')) %>%  group_by(q8JobLevel) %>% count() %>% 
+
+hchart("treemap", hcaes(x = 'q8JobLevel', value = 'n',color = 'n')) 
+
+
+
+```
+
+**Female**
+
+
+
+```{r}
+
+
+
+values %>% filter(q3Gender %in% c('Female')) %>%  filter(!q8JobLevel %in% c('Student','')) %>%  group_by(q8JobLevel) %>% count() %>% 
+
+hchart("treemap", hcaes(x = 'q8JobLevel', value = 'n', color = 'n'))  
+
+
+
+
+
+```
+
+
+
+As we can see from the above Visualization, Female developers on Hackerrank are primarily at the starting point of their Career while their Male counterparts are Senior Developers. 
+
+This also shows how emerging the Women in Tech community is. 
+
+
+
+#### Male vs Female  - Current Job Role
+
+
+
+**Male**
+
+
+
+```{r}
+
+
+
+values %>% filter(q3Gender %in% c('Male')) %>% filter(!q9CurrentRole %in% c('Student','')) %>% group_by(q9CurrentRole) %>% count() %>% 
+
+hchart("treemap", hcaes(x = 'q9CurrentRole', value = 'n',color = 'n'))
+
+
+
+```
+
+**Female**
+
+
+
+```{r}
+
+
+
+values %>% filter(q3Gender %in% c('Female')) %>% filter(!q9CurrentRole %in% c('Student','')) %>% group_by(q9CurrentRole) %>% count() %>% 
+
+hchart("treemap", hcaes(x = 'q9CurrentRole', value = 'n', color = 'n'))
+
+
+
+```
+
+
+
+
+
+### What does a Female employee want in a job?
+
+
+
+This section is not just to understand what does a female employee want in a new job, but also to see how the choices differ between a student and a developer (professional)
+
+
+
+```{r}
+
+ 
+
+values$is_student <- ifelse(values$q8Student == '','Developers','Students')
+
+
+
+cols_q12 <- names(values)[26:39]
+
+
+
+new_list <- list()
+
+
+
+for(i in 1:14){
+
+    
+
+  new_list[[i]] <- values %>% filter(q3Gender %in% 'Female') %>% group_by_(cols_q12[i],'is_student') %>% count() %>% rename('q12' = !!cols_q12[i])
+
+    
+
+}
+
+  
+
+big_list <- bind_rows(new_list)
+
+ 
+big_list %>% filter(! q12 %in% c('','#NULL!' )) %>%  group_by(q12) %>% mutate(prop = round((n / sum(n))*100)) %>% #ggplot(aes(q12,prop, fill = is_student)) + geom_bar( stat = 'identity') + coord_flip() + theme_fivethirtyeight() + ggtitle('Student vs Professional Preference in a New Job')
+
+hchart('column', hcaes(x = 'q12', y = 'prop', group = 'is_student')) %>% 
+  
+  hc_title(text = 'Hacker Women Expectations') %>% 
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Job Criteria Expectations"))
+
+
+
+
+```
+
+
+
+
+
+As you can see, Interesting Problems to solve and Making impact - are something Students looking for in a new job while experienced professionals look for a good compensation (that too with Gender wage gap hurting them). That's something a key difference between the already-devs and students, the interest in focusing on the quality of the job and the impact that their role could make. 
+
+This is something that Companies looking for quality talents could offer and fetch those valuable resources. 
+
+
+
+### What's that One More other thing in Job Criteria?
+  
+  
+  
+```{r}
+
+
+
+values %>%  filter(q3Gender %in% c('Female')) %>% 
+  
+  group_by(q3Gender) %>% filter(q0012_other  != '') %>% ungroup() %>% 
+  
+  select(q0012_other) %>% 
+  
+  mutate(num = row_number()) %>% 
+  
+  unnest_tokens(word,q0012_other) %>% 
+  
+  anti_join(stop_words) %>% 
+  
+  count(word) %>% arrange(desc(n)) %>% 
+  
+  filter(n >= 3) %>% 
+  
+  
+  hchart('column', hcaes(x = 'word', y = 'n')) %>% 
+  
+  hc_title(text = 'Text Analysis of what Female employees want in a Job - Others') %>% 
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Other things in Job Criteria"))
+
+
+```
+
+
+
+It's that flexibility of **Remote Work** / **Working from home** and **a better work environment**, that Women are looking for in a Tech job.
+
+
+
+
+
+### Who's your Hiring Manager?
+  
+  
+  
+```{r}
+
+
+
+values %>% filter(q16HiringManager == 'Yes') %>%  
+  
+  #filter(is_student %in% 'Developers') %>% 
+  
+  filter(q3Gender %in% c('Male','Female')) %>% 
+  
+  group_by(q3Gender) %>%  summarise (n = n()) %>%
+  
+  mutate(perc = (n / sum(n))*100) %>% 
+  
+  hchart('column', hcaes(x = 'q3Gender', y = 'perc', group = 'q3Gender')) %>% 
+  
+  hc_title(text = 'Hiring Managers - Male vs Female') %>%
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Gender")) %>% 
+  
+  hc_yAxis(title = list(text = "Percentage of Hiring Managers"),labels = list(format = "{value}%"), max = 100)
+
+
+
+```
+
+
+
+Of all the respondents who participated in this Survey, Hiring Managers have been identified. With no shock *Female Hiring Managers* are a lot lesser than *Male Hiring Managers*. What might be a new information is that, It's already only **13.6%** of the entire **non-student respondents** are **Female**. But when it comes to Hiring Managers, It's just **10.3%** are Female - which means within the community of entire Female Developers, Female Developers who have the authority to hire are further less. 
+
+
+
+### What's hiring Managers looking in you
+
+
+
+
+
+```{r}
+
+cols_q20 <- names(values)[71:83]
+
+
+
+new_list <- list()
+
+
+
+for(i in 1:13){
+  
+  
+  
+  new_list[[i]] <- values %>% #filter(q3Gender %in% 'Female') %>%
+    
+    group_by_(cols_q20[i]) %>% count() %>% rename('q20' = !!cols_q20[i])
+  
+  
+  
+}
+
+
+
+big_list <- bind_rows(new_list)
+
+
+
+big_list %>% filter(! q20 %in% c('','#NULL!' )) %>%  group_by(q20) %>% arrange(desc(n)) %>% 
+  
+  #mutate(prop = round((n / sum(n))*100)) %>% 
+  
+  
+  hchart('column', hcaes(x = 'q20', y = 'n')) %>% 
+  
+  hc_title(text = 'Top expectations by Hiring Managers') %>% 
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Hiring Managers Top Expectations"))
+
+```
+
+
+
+Even though, Previous experience and Number of Years of experience play a very vital role. Those couldn't not be hacked. But there's one another thing that Hiring managers are interested in, That's **Github or Personal projects** that anyone can improve. This is something that students and developers looking for a job should be focusing on.
+
+
+
+
+#### n-gram Analysis of Other Expectation 
+
+
+
+```{r}
+
+
+
+ values %>%  #filter(q3Gender %in% c('Female')) %>% 
+
+  #group_by(q3Gender) %>% 
+
+  filter(q0020_other  != '') %>% #ungroup() %>% 
+
+  filter(grepl('3',q0020_other) == FALSE) %>% 
+
+   select(q0020_other) %>% 
+
+   mutate(num = row_number()) %>% 
+
+   #unnest_tokens(word,q0020_other) %>% 
+
+  unnest_tokens(word,q0020_other, token = "ngrams", n = 3) %>% 
+
+   anti_join(stop_words) %>% 
+
+   count(word) %>% arrange(desc(n)) %>% 
+
+   filter(n >= 3) %>% 
+
+   #ggplot(aes(reorder(word,n), n)) +
+
+   #geom_col() +
+
+   #coord_flip() + theme_fivethirtyeight()
+
+   hchart('column', hcaes(x = 'word', y = 'n')) %>% 
+
+  hc_title(text = 'n-gram Analysis of Other Expectations') %>% 
+
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+
+  hc_add_theme(hc_theme_darkunica()) %>%
+
+  hc_xAxis(title = list(text = "Other Expectations - Trigram"))
+
+  
+
+```
+
+
+
+Now, it's becoming clear that they are also looking for the `ability and willingness to learn` and the `ability and skill to communicate`. 
+
+
+
+### What's that One More other thing in Hiring Manager Expectation?
+  
+  
+```{r}
+
+
+
+values %>%   
+  
+  filter(q0020_other  != '') %>% #ungroup() %>% 
+  
+  select(q0020_other) %>% 
+  
+  mutate(num = row_number()) %>% 
+  
+  unnest_tokens(word,q0020_other) %>% 
+  
+  anti_join(stop_words) %>% 
+  
+  count(word) %>% arrange(desc(n)) %>% 
+  
+  filter(n >= 15) %>% 
+  
+  
+  hchart('bar', hcaes(x = 'word', y = 'n')) %>% 
+  
+  hc_title(text = '1-gram Analysis of Other Expectations') %>% 
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Other Expectations - Unigram"))
+
+
+
+
+
+```
+
+
+
+### Challenges faced by Hiring Managers
+
+
+
+
+
+```{r}
+
+
+
+
+
+cols_q20 <- names(values)[53:58]
+
+
+
+new_list <- list()
+
+
+
+for(i in 1:6){
+
+    
+
+  new_list[[i]] <- values %>% #filter(q3Gender %in% 'Female') %>%
+
+  group_by_(cols_q20[i]) %>% count() %>% rename('q20' = !!cols_q20[i])
+
+    
+
+}
+
+  
+
+big_list <- bind_rows(new_list)
+
+
+  big_list %>% filter(! q20 %in% c('','#NULL!' )) %>%  group_by(q20) %>% arrange(desc(n)) %>% 
+
+hchart('column', hcaes(x = 'q20', y = 'n')) %>% 
+  
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Challenges"))
+
+
+
+```
+
+
+### Expected Core competencies
+
+
+
+
+
+```{r}
+
+
+
+
+
+cols_q20 <- names(values)[86:95]
+
+
+
+new_list <- list()
+
+
+
+for(i in 1:10){
+  
+  
+  
+  new_list[[i]] <- values %>% #filter(q3Gender %in% 'Female') %>%
+    
+    group_by_(cols_q20[i]) %>% count() %>% rename('q20' = !!cols_q20[i])
+  
+  
+  
+}
+
+
+
+big_list <- bind_rows(new_list)
+
+
+
+
+big_list %>% filter(! q20 %in% c('','#NULL!' )) %>%  group_by(q20) %>% arrange(desc(n)) %>% 
+  
+  #mutate(prop = round((n / sum(n))*100)) %>% 
+  
+  
+  hchart('column', hcaes(x = 'q20', y = 'n')) %>% 
+  
+  hc_title(text = 'Core Competencies Expectations by Hiring Managers') %>% 
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Expected Core Competencies"))
+
+
+
+
+
+```
+
+
+
+It's not just your technical skills that can land you in a job, but inherently the ability *to solve problems* and * debugging*  are important competencies that are expected by Hiring Managers.
+
+
+
+
+### Challenges faced by Hiring Managers
+
+
+
+
+
+```{r}
+
+
+
+
+
+cols_q20 <- names(values)[53:58]
+
+
+
+new_list <- list()
+
+
+
+for(i in 1:6){
+
+    
+
+  new_list[[i]] <- values %>% #filter(q3Gender %in% 'Female') %>%
+
+  group_by_(cols_q20[i]) %>% count() %>% rename('q20' = !!cols_q20[i])
+
+    
+
+}
+
+  
+
+big_list <- bind_rows(new_list)
+
+
+  big_list %>% filter(! q20 %in% c('','#NULL!' )) %>%  group_by(q20) %>% arrange(desc(n)) %>% 
+
+hchart('column', hcaes(x = 'q20', y = 'n')) %>% 
+  
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Challenges"))
+
+
+
+```
+
+
+
+Remember, Because **Hard to assess the skills before onsite** is being one of the top challenges faced by Hiring Managers, Having your portfolio or projects online on Github or in any other form could definitely help in hiring managers understand your expertise better.
+
+
+
+
+
+### Expected Programming Language Skill
+
+
+
+
+
+```{r}
+
+
+
+
+
+cols_q20 <- names(values)[96:113]
+
+
+
+new_list <- list()
+
+
+
+for(i in 1:18){
+  
+  
+  
+  new_list[[i]] <- values %>% #filter(q3Gender %in% 'Female') %>%
+    
+    group_by_(cols_q20[i]) %>% count() %>% rename('q20' = !!cols_q20[i])
+  
+  
+  
+}
+
+
+
+big_list <- bind_rows(new_list)
+
+
+
+#print(big_list)
+
+# creting custom theme with new colors
+
+
+
+big_list %>% filter(! q20 %in% c('','#NULL!' )) %>%  group_by(q20) %>% arrange(desc(n)) %>% 
+  
+  hchart('column', hcaes(x = 'q20', y = 'n')) %>% 
+  
+  hc_title(text = 'Hiring Manager Programming Language Expectation') %>% 
+  
+  hc_colors(c("forestgreen", "lightgoldenrodyellow")) %>% 
+  
+  hc_add_theme(hc_theme_darkunica()) %>%
+  
+  hc_xAxis(title = list(text = "Expected Programming Languages"))
+
+
+
+```
+
+
+
+In the age of Web domination (over desktop), **Javascript** is your hiring manager's most expected programming language while **Java** and **Python** follow it. 
+
+
+
+It's also notable that Hiring Managers expect candidates to be **Language Agnostic** and that very well correlates with the above Core Competency that they are looking for which is **Problem Solving Skill**
+  
+
+  
+### Final Note
+  
+
+
+Finally, It's our responsibility as a society to make sure that we all - together as one - move forward. I'd like to leave you with this quote from Sheryl Sandberg.
+
+
+
+![Sheryl Quote](http://whatpovertytaughtme.com/wp-content/uploads/2017/10/14581785559_1005137295_b.jpg)
+
+
+
+
+**Thank you for going through my work.**

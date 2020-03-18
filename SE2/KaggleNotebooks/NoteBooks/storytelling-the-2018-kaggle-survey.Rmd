@@ -1,0 +1,344 @@
+---
+title: 'Storytelling the 2018 Kaggle Survey'
+date: '`r format(Sys.time(), "%Y %b  %d  ")`'
+output:
+
+  html_document:
+    number_sections: true
+    fig_caption: true
+    toc: true
+    fig_height: 4
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---                                                                         
+
+```{r setup, include=FALSE, echo=TRUE}
+knitr::opts_chunk$set(echo=TRUE, error=FALSE)
+knitr::opts_chunk$set(out.width="85%", fig.height = 3.5, split=FALSE, fig.align = 'center')
+#
+# load(Storify) # TBD
+#
+```
+
+In this notebook I want to share some basic storytelling tips. My interest in data visualization originates from design thinking.
+
+# Gender Equality
+<center><img  src="https://i.imgur.com/u9nD3NC.png?1" width="420"></center><br>
+A 2015 <a href="https://www.aauw.org/research/solving-the-equation/">survey</a> showed that only 26% of data jobs are held by women [1]. However, lack of feminine perspective creates blind spots such as the <a href="https://www.theverge.com/2018/11/2/18057716/google-walkout-20-thousand-employees-ceo-sundar-pichai-meeting">#googleWalkout</a> [2] and is bad business - says Forbes [3]. In Fig. 1 (above), we use superhero-themes #batman #wonderwoman to visualize the heavy topic of #gender_equality in #datascience. See a bar chart for a more accurate breakdown [4]. Source: survey question Q1 - What is your gender? Sample size =  23,859 respondents 
+
+# Cohorts
+
+<center><img src="https://i.imgur.com/RPzVp6E.png" width="600" ></center><br>
+<!-- center><img src="https://i.imgur.com/zrtSDNf.png?1" width="600" ></center><br -->
+What can we learn from our data scientist uncle? Fig. 2 is user distribution by age. We use a two-color scheme [18] to highlight which age-group won most competitions per user*. However, just a few too many age bins can overwhelm any reader. A way to declutter and structure the bins into usable knowledge is to reduce their numbers and group them in a familiar, relatable form. One way is to group the bins by generations. In this case, we used the 
+<a href="https://en.wikipedia.org/wiki/Generations_in_the_workforce">Generations in the workforce</a> 
+(the gen X, Y, Z and the Boomers [5]) and we are interested to see which group is the most productive in terms of competitions and cash prizes per user. Because everyone belongs to a generation this chart can become very personable. What can we learn from the wisdom that each generation offers?
+
+Generation year brakets and work-ethic attribute
+
+* The Baby Boomers, born 1946 - 1964 "often branded workaholics" [6]
+* Gen X, born 1967 - 1977 "this generation works to live and carry with them a level of cynicism" [7]
+* Gen Y, "Millennials" born 1980 -  2000 "considered the most educated and self-aware generation in employment" [8]
+* Gen Z, born 2000 -
+
+&ast;Source: Own <a href="https://www.kaggle.com/rankings">estimates</a>, <a href="https://uaeu.typeform.com/to/aaxMAz">xSurvey</a>. Source - Q2 : What is your age (# years)?
+
+# Inclusion
+<center><img src="https://i.imgur.com/i5HijFH.png" width="600" ></center>
+Fig. 3 tells a #digitaldivide story. How inclusive are we as a community? Should we pat ourselves on our backs? 
+Again, to create knowledge we need to relate the data to the reader in ways they can connect it to other knowledge they have.
+Here, one way is to use the income percentiles (see #onepercent). In US, to belong to the 1% elite, 
+one needs to earn more than $422k per year [10]. About 23 respondents declared that they do. 
+In addition, about 6% declared they belong to the 10% percentile, a very inclusive number because 6% is similar to 10%. 
+The 10% percentile income is about $166k in US [11], so if the sample reflects the distribution found in society 
+it means it is at least somehow inclusive. We add a smiley emoji to reassure the reader that yes, this is good.
+
+However, those numbers are for US household incomes. When we look globally, the 1% percentile thereshold is $32k per year. This puts 60% of the 
+respondents in the top 1%. 60% is very different from 1% so globally this datapoint does not support inclusiveness
+because it does not reflect the global distribution. #Ahamoment. One way to create such moments in the story
+is to A/Bify the story by switching between two points of view. Source - Q9 : What is your current yearly compensation (approximate $USD)?
+
+# ML Champions
+<center><img src="https://i.imgur.com/spbq9Q9.png" width="600" ></center>
+Fig. 4. This chart is an example of less is more. Many times, displaying detailed percentages of 
+usage adds little to the story. In this case Sci-Kit has a 48% share, TF has a 16%, followed by Keras 14%. 
+However, anthropomorphizing the ranking with a podium conveys a memorable affordance: the glory the winner 
+deserves for the great utility this library provided to the community. 
+The podium-template is from a <a href="http://www.amazon.com/Sketch-Thinking-design-ebook/dp/B014BMONTG">#sketchthinking</a> book [12].
+Source - Q20 : Of the choices that you selected in the previous question, which ML library have you used the most? 
+
+# Viz Enablers
+<center><img src="https://i.imgur.com/432xvD9.png" width="600"></center>
+Fig. 5. This is a combination of a famous chart template called *Marimekko*, 
+with a symbolic chart called *House of Shiva* [13-14]. 
+Symbolism: The columns, *support* the visualization efforts of the community (roof load). 
+The width of the "columns" expresses how much work/load each column supports. 
+Grey columns on the right represent other less mainstream libs such as: D3, Shiny, bokeh, Leaflet, Lattice.
+
+Source - Q22 : ...which specific data visualization library or tool have you used the most? 
+
+# New Users (BRICS)
+<center><img src="https://i.imgur.com/0spLmz4.png" width="600"></center>
+
+
+Fig. 6. Where do new data scientists users come from? 1145 new respondents that indentify as "data sceintist" where added in 2018 from more than 100 countries. 
+A typical way to visualize here is count grouping by country. 
+However, there are too many countries for a human to make sense of it! 
+It makes much more sense to group them in economic **mega regions**: US, Europe, BRICS and the rest of World. 
+(The term “BRIC” was coined in 2001 by then-chairman of Goldman Sachs Asset Management, Jim O’Neill [16]. )
+When we do that we see that not only is BRICS the top contributor to growth with 42% of total growth for 2018, 
+but it was also the fastest growing among the big three.
+In 2018, in the category "users that define themselves as data scientist", Europe added 302 users, US 131, the rest of the world: 231, 
+and BRICS: 481. Regarding growth rates, by 2020 BRICS will outnumber Europe and US combined. 
+
+Data source: we <a href="https://www.kaggle.com/harriken/kaggle-journey-2017-2018?scriptVersionId=7123143">forked</a> and modified a snippet the excellent code from [15] and took the top 20 countries whose respondents identified as “data scientist” [17]. EU-6 means the top 6 European countries.
+
+# Users by Country (SG leads)
+<br>
+<br>
+
+```{r fig7, include=TRUE, message=FALSE, echo=TRUE}
+knitr::opts_chunk$set(tidy = TRUE, tidy.opts = list(comment = FALSE))
+knitr::opts_chunk$set( fig.height = 3.5, split=FALSE, fig.align = 'center')
+#
+# This are the only two figs calculated in this code
+# load(Storify) # TBD 
+#
+# Todo: produce the shown charts using simple AI and ggplot2 customizaiton.
+#
+library('dplyr') 
+library('data.table') # data manipulation
+library('tibble') # data wrangling
+library('tidyr') # data wrangling
+library('stringr') # string manipulation
+library('forcats') # factor manipulation
+library('ggplot2')
+
+# Load survey
+#
+path1 = "../input/kaggle-survey-2018/"
+multi <- as.tibble(fread(str_c(path1,'multipleChoiceResponses.csv'), skip = 1))
+
+vars <- c(gender = "What is your gender? - Selected Choice",
+          gen_txt = "What is your gender? - Prefer to self-describe - Text",
+          country = "In which country do you currently reside?")
+
+multi <- multi %>% rename(!!vars) 
+multi[multi$country=="United Kingdom of Great Britain and Northern Ireland",]$country <- c("United Kingdom")
+multi[multi$country=="Russia",]$country <- c("Russian Federation")
+#unique(multi$country)  
+
+
+# Load INSEAD data
+#
+path2 = "../input/insead-global-innovation-index/"
+innov <- as.tibble(fread(str_c(path2,'INSEADGlobalinnovationIndex2018.csv'), skip = 1))
+innov <- innov %>% rename(country = V2, innovation.index = V6) %>% select(country,innovation.index)
+#unique(innov$country)
+
+
+# Load populations from World Bank
+#
+path3 = "../input/worldpopulation/"
+pops <- as.tibble(fread(str_c(path3,'POP_TOTAL_DS2_en_v5.csv'), skip = 0))
+pops <- pops %>% rename(country = V1, population = V60) %>% select(country,population)
+pops[pops$country=="United States",]$country <- c("United States of America")
+#unique(pops$country)
+
+
+# Triple inner join
+#
+byc = multi %>% group_by(country) %>% count() %>% ungroup() %>%  top_n(26,n)
+#byc
+byc <- byc %>% inner_join(innov,by = "country") %>% inner_join(pops,by = "country")
+byc$respondents.per.10k <- 10000*byc$n / byc$population
+
+  byc$label <- c("grey50")
+  byc[byc$country=="United States of America",]$label = c("black")
+  byc[byc$country=="Singapore",]$label = c("red")
+  
+  p <- ggplot(byc,aes(reorder(country, respondents.per.10k, FUN = min), respondents.per.10k, fill=factor(label))) +
+  geom_hline(yintercept=c(0.03,0.085,0.143), linetype="dotted", color="grey50") +
+  geom_col() +
+  labs(x = "", y = " Kaggle survey respondents per ten-thousand population  \n \n (Data scientist prevalence)") +
+  theme(legend.position = "none") + #axis.text.x  = element_text(angle=30, hjust=1, vjust=0.9)) +
+  #ggtitle("Data Scientists per ten-thousand population") +
+  scale_fill_manual(name = "area", values=c("grey10","grey50","red")) +
+  coord_flip()  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(), axis.line = element_line(colour = "black"),
+  axis.line.x = element_line(colour = "black", arrow = arrow(length = unit(0.08, "inches"), type = "open")  )) +
+  annotate("label", x = 2.5, y = 0.05, label = "BRICS mean",size=3, color="grey50")+
+  annotate("label", x = 5.3, y = 0.096, label = "EU mean",size=3, color="grey50")+
+  annotate("label", x = 7, y = 0.143, label = "USA",size=3, color="black")
+
+  print(p)
+  #ggsave("fig7.svg", plot=p)
+  
+```
+<br>
+Fig. 7 How do countries compare on Data Scientists prevalence? to drive home the point we higlight the top country in red and the US (home to the largest survey community) in black so the reader has a reference point. This chart has a lot going on:
+
+- US mean: 0.14 per 10,000
+- EU6 mean*: 0.09 per 10,000
+- BRICS mean*: 0.03 (5x less than US)
+
+**US-UK-EU gap**
+
+The US-EU gap is about 50%. However, the UK mean closer to the EU6 mean than to the US mean. Does this mean we discard language barrier as a explanatory factor for the gap? Note: The BRICS, and EU6 mean is mean of country means, not weighted by respondents.
+
+
+**Aesthetic considerations** 
+
+This color scheme is called the *red on grey*, it is my favorite scheme for charts. 
+Unlike, other schemes such as purple on grey, it is gender neutral [23]. 
+However, for it to work the red surface must be kept to a minimum, otherwise it comes across as strident. 
+The blue on grey scheme does not have this limitation (See Figs. 1-5). However, 
+the red on grey has one *secret* advantage. Usually, using three colors in a chart will clutter it,
+but because the chromatic distance between red and any shade of grey is so large, we can get away by using black (as a gray 85%) as a third color 
+with a small clutter trade-off.
+
+Source - World Bank Population Data 2016, Q11 - Current country of residence [20]
+
+# Innovation (~80% correlation)
+<br><br>
+
+```{r fig8, include=TRUE, message=FALSE, echo=TRUE }
+knitr::opts_chunk$set( fig.height = 3.5, split=FALSE, fig.align = 'center')
+  library(ggrepel)
+  p <- ggplot(byc,aes(x = respondents.per.10k, y=innovation.index,color=label,label=country)) +
+  geom_point() +
+  scale_color_manual(values=c("grey10", "grey45", "red"))+
+  labs(y = "Global Innovation Index", x = "Kaggle survey respondents per ten-thousand population") +
+  theme(legend.position = "left") + #axis.text.x  = element_text(angle=30, hjust=1, vjust=0.9)) +
+  #ggtitle("Data Scientists* per ten-thousand residents") +
+  #geom_text(check_overlap = TRUE)+
+  #geom_label(size=3.5)+
+  #geom_label_repel(size=3.5)+
+  geom_text_repel(size=3.5)+
+  theme(legend.position="none",panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+  panel.background = element_blank(), axis.line = element_line(colour = "black", arrow = arrow(length = unit(0.08, "inches"), type = "open")  ))+ 
+  expand_limits(x = c(0, 0.35))
+  print(p)
+  # ggsave("fig8.svg", plot=p)
+```
+<br>
+Fig. 8 Every year, #Insead #Cornel and #Wipo publish <a href="https://www.globalinnovationindex.org/home">Global Innovation Index</a> (#GII) [20]. 
+In 2018, the most innovative country was Switzerland. A Spearman **rank** correlation [23] between GII and user prevalence yields 79%. 
+
+
+**Forecasting with mean reversion**
+```{r fig8b, include=TRUE, message=FALSE, echo=TRUE }
+knitr::opts_chunk$set(out.width="85%", fig.height = 3.5, split=FALSE, fig.align = 'center')
+  byc$label <- c("grey50")
+  byc[byc$country=="United States of America",]$label = c("black")
+  byc[byc$country=="Japan",]$label = c("red")
+  byc[byc$country=="Italy",]$country = c(" ") #hide italy
+  byc[byc$country=="United States of America",]$country = c(" ") #hide USA
+
+  p <- ggplot(byc,aes(x = respondents.per.10k, y=innovation.index,color=label,label=country)) +
+  scale_color_manual(values=c("grey10", "grey45", "red"))+
+  labs(y = "Global Innovation Index", x = "Kaggle survey respondents per ten-thousand population") +
+  theme(legend.position = "left") + #axis.text.x  = element_text(angle=30, hjust=1, vjust=0.9)) +
+  theme(legend.position="none",panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+  panel.background = element_blank(), axis.line = element_line(colour = "black", arrow = arrow(length = unit(0.08, "inches"), type = "open")  ))+ 
+  expand_limits(x = c(0, 0.35))
+  p2 <- p + geom_smooth(data=byc[byc$innovation.index>0&byc$respondents.per.10k>0.00&byc$respondents.per.10k<0.3,],
+  method = lm, weight = "n" ,
+  formula = y ~ x, se = TRUE, linetype = "dotted",  level =0.95)
+  ## splines::bs(x, 3)
+  xo = byc[byc$country=="Japan",]$respondents.per.10k
+  yo = byc[byc$country=="Japan",]$innovation.index
+  xe = byc[byc$country=="Poland",]$respondents.per.10k
+  ye = byc[byc$country=="Poland",]$innovation.index
+  do = 0.17
+  de = 0.50
+  dx = xe -xo
+  dy = ye -yo
+  
+  p2 <- p2 + annotate("segment", x = xo+dx/7, xend = xo+dx/2.5, y = yo+dy/7, yend = yo+dy/2.5, colour = "grey", size=1, alpha=1, arrow = arrow(length = unit(0.08, "inches"), type = "open") )
+  p2 <- p2 +   geom_rect( mapping=aes(xmin=0.28, xmax=.35, ymin=40, ymax=65, fill=TRUE), fill="white",color="white", alpha=1) +  
+               geom_text_repel(size=3.5)+
+               geom_point() 
+               #+
+               #annotate("text", x = c(xo+dx/2.1), y = c(yo+dy/2.1), label = c(" ?") , color="red", size=3 , angle=0)
+  p2
+
+```
+
+Fig. 8b Adds a regression line. 95% SE level is shown in gray. Some countries are below and some above. Highlighted in red Japan,
+as an outlier with high Innovation (y) but low (x). Let's assume that the principle of mean reversion applies here 
+and a hidden hand continually pushes countries towards the mean [24] (dotted line).
+
+- Q1: What can we forecast about the 2019 GII rank position of Japan?
+
+- Q2: Assuming the Data Science weight in the innovation economy will increase in the coming decades and that the  GII index calculation method will be updated accordingly... What countries are more likely to improve their ranking in 2019?
+
+Source - Global Innovation Index 2018, World Bank Population Data 2016, Q11 - Current country of residence [19-21]. For residuals see [25]
+
+**Correlation between GII and user prevalence**
+
+```{r table1, include=TRUE, message=FALSE, echo=TRUE}
+#a <-  cor(byc[,c(3,5)], use="complete.obs", method="kendall")[1,2] 
+#b <-  cor(byc[,c(3,5)], use="complete.obs", method="spearman")[1,2]
+#c <-  cor(byc[,c(3,5)], use="complete.obs")[1,2]
+#d <-  cor(byc[!byc$country=="Singapore",c(3,5)], use="complete.obs")[1,2]
+#r <- c(a,b,c,d)
+#df2 <- as.data.frame( cbind( c("kendall","spearman","default","ex-Singapore"), round(r, digits=2)))
+#colnames(df2) <- c("method","corr")
+#print(df2, row.names = FALSE)
+#print(cor.test(byc[,3],byc[,5],method="spearman"))
+x = byc$respondents.per.10k
+y = byc$innovation.index
+print( cor.test(x,y,method="spearman") )
+
+```
+
+# Conclusions
+
+* BRICS to outnumber Western countries by 2020* (Fig. 6)
+* US-Europe gap = 50%
+* Survery respondents per capita strongly correlated with the Innovation Index (fig. 8)
+
+\* 2020 Note: based on a linear extrapolation (See fig. 6 data sources)
+
+
+# References
+
+1. [1] https://www.aauw.org/research/solving-the-equation/
+2. [2] https://www.theverge.com/2018/11/2/18057716/google-walkout-20-thousand-employees-ceo-sundar-pichai-meeting
+3. [3] https://www.forbes.com/sites/womensmedia/2017/08/03/breaking-down-the-gender-gap-in-data-science/#129d1bb74287
+4. [4] https://www.kaggle.com/paultimothymooney/2018-kaggle-machine-learning-data-science-survey
+5. [5] https://en.wikipedia.org/wiki/Generations_in_the_workforce
+6. [6] Sinton, E (2011). 'Baby boomers are very privileged human beings' https://www.telegraph.co.uk/finance/personalfinance/pensions/8840963/Baby-boomers-are-very-privileged-human-beings.html retrieved October 23, 2013 from www.telegraph.co.uk
+7. [7] Ken Blanchard Companies. (2009). Next Generation of workers. http://www.kenblanchard.com/img/pub/Blanchard_Next_Generation_of_Workers.pdf Retrieved October 14, 2013, from kenblanchard.com
+8. [8] Adecco Group UK and Ireland. (n.d.). Managing the modern workforce. http://www.adeccogroupuk.co.uk/SiteCollectionDocuments/Adecco-Group-Workplace-Revolution.pdf Retrieved October 13, 2013, from www.Adeccouk.co.uk
+9. ref. needed
+10. [10] https://en.wikipedia.org/wiki/Affluence_in_the_United_States
+11. [11] https://www.epi.org/blog/top-1-0-percent-reaches-highest-wages-ever-up-157-percent-since-1979/
+12. [12] J. Berengueres, Sketch thinking. 2016
+13. [13] https://en.wikipedia.org/wiki/Marimekko#Marimekko_chart
+14. [14] ref. needed
+15. [15] https://www.kaggle.com/ash316/kaggle-journey-2017-2018
+16. [16] https://en.wikipedia.org/wiki/BRICS
+17. [17] https://www.kaggle.com/harriken/brics-growth
+18. [18] See primary vs. secondary color in https://material.io/design/color/the-color-system.html#color-theme-creation
+19. [19] Dutta, S., Reynoso, R.E., Garanasvili, A., Saxena, K., Lanvin, B., Wunsch-Vincent, S., León, L.R. and Guadagno, F., 2018. THE GLOBAL INNOVATION INDEX 2018: ENERGIZING THE WORLD WITH INNOVATION. GLOBAL INNOVATION INDEX 2018, p.1.
+20. [20] CSV file global innovation in https://www.globalinnovationindex.org/analysis-indicator
+21. [21] World Bank, https://data.worldbank.org/indicator/SP.POP.TOTL
+22. [22] https://en.wikipedia.org/wiki/Kendall_rank_correlation_coefficient
+23. [23] https://www.pinterest.com/pin/281615782925970581/?lp=true
+24. [24] https://en.wikipedia.org/wiki/Regression_toward_the_mean
+25. [25] https://www.kaggle.com/harriken/residuals-fig8b-test
+
+# Acknowledgements
+- The chart style is inspired by <a href="https://twitter.com/BW">@BloombergBusiness Week</a>.
+- Fig. 3 and 5 was largely inspired by conversations with Ferran Pujol of McKinsey &Co. Chile. 
+- Fig. 6 inspired by the charts of @ash316 [15]
+- Fig. 1,2,3 inspired by the charts of @paultimothymooney [4]
+- <a href="https://twitter.com/hadleywickham">Hadley Wickham</a>, for his development of <a href="https://en.wikipedia.org/wiki/Hadley_Wickham">ggplot2
+</a> (Fig 7, 8), the open-source statistical analysis & data visualisation based on Leland Wilkinson's book Grammar of Graphics. 
+- <a href="https://www.kaggle.com/headsortails/what-we-do-in-the-kernels-a-kaggle-survey-story">HeadsorTails</a> contributions in comments, corr, greple, and many other.
+
+
+

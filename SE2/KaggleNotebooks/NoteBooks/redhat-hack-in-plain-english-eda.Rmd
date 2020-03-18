@@ -1,0 +1,217 @@
+---
+title: "RedHat Hack in plain English"
+author: "dmi3kno"
+date: "11. august 2016"
+output: html_document
+---
+
+I will try to illustrate the hack and set some direction for further improvement in predictions.
+
+# What is people$char_38?
+My assumption is that it is Redhat's simple outcome model based on people features only. (GLM?)
+*Proof: try removing char_38 and rerun your xgboost model. You will hardly notice any difference*
+
+Therefore our goal in this competition is threefold:
+
+* Elaborate the model by using more sophisticated algorithms on people data
+* Extend the model to include the "activities" data to be able to spot the change in customer behaviour.
+* Stack the two models together for better result
+
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+library(data.table)
+#library(rms)
+library(xgboost)
+library(Matrix)
+library(MatrixModels)
+library(lubridate)
+library(caret)
+
+rm(list=ls())
+train=fread('../input/act_train.csv')
+test=fread('../input/act_test.csv')
+people=fread('../input/people.csv')
+
+people[,date:=NULL]
+test[, outcome:=0.5]
+```
+
+What is distribution of `char_38` in `train` set split by `outcome`?
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+tmp_train <- merge(train[, .(people_id, outcome)], people[,.(people_id, char_38)], by="people_id")
+
+ggplot(tmp_train) + geom_density(mapping=aes(x=char_38, fill=as.factor(outcome), alpha=0.5))
+```
+
+Then, lets see if distribution of `char_38` is roughly the same between `train` and `test`. In other words, what does char_38 say about the test set distribution 
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+tmp_train_people <- merge(people,train[, .(mean_outcome=mean(outcome), act_count=.N), by=.(people_id)], by="people_id")
+
+tmp_test_people <- merge(people,test[, .(mean_outcome=NA, act_count=.N), by=.(people_id)], by="people_id")
+
+ggplot(rbind(tmp_train_people, tmp_test_people))+geom_density(mapping=aes(x=char_38, color=as.factor(mean_outcome>-1))) + labs(color="Train/Test set")
+```
+
+We can roll up `outcome` label from train set up to `people_id` level using mean() function.
+How many people have `mean_outcome` of 0, 1 or something in between. 
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+
+ggplot(tmp_train_people)+geom_bar(mapping=aes(x=cut(mean_outcome, breaks=c(-1, 0, 0.99999999999999, 1), labels=c("only 0", "mixed", "only 1"))))
+
+tmp_train <- merge(train[, .(people_id, activity_id, date, outcome)],tmp_train_people, by="people_id")
+tmp_test <- merge(test[, .(people_id, activity_id, date, outcome)],tmp_test_people, by="people_id")
+```
+
+How well is `char_38` predicting the outcome for each of these categories? What is the char_38 AUC for each category?
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+library(plotROC)
+mixed=factor(tmp_train$mean_outcome==0|tmp_train$mean_outcome==1, labels=c("Mixed", "Zero-One"))
+
+g <- ggplot(tmp_train, mapping=aes(d=outcome, m=char_38, color=mixed)) + geom_roc() + style_roc()
+two_rocs <- round(calc_auc(g)$AUC,3)
+ g + ggtitle("char_38 ROC curves for people with only 0/1 vs mixed") + 
+annotate("text", x=c(0.3,0.3), y=c(0.25, 0.9), label=c(paste("AUC=", two_rocs[1]), paste("AUC=", two_rocs[2])))
+
+```
+
+As one can see char_38 does particularly poor job at predicting outcomes for those people who "changed their outcome" during the course of actions. Therefore we will focus on those.
+
+# Nature of the data leak
+
+As spotted by @loisso and his team, this dataset most likely has a data leakage, which means that it has something that allows filling in labels in the test dataset directly using labels from train dataset.
+
+Here's one way of spotting this pattern: We sample 6 people and look at how their outcome changes over time
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+ 
+tmp_train[,date := as.Date(as.character(date), format = "%Y-%m-%d")]
+tmp_test[,date := as.Date(as.character(date), format = "%Y-%m-%d")]
+
+tmp_train_mixed <- tmp_train[mean_outcome>0&mean_outcome<1]
+tmp_all_mixed <- rbindlist(list(tmp_train_mixed, tmp_test), use.names = T)
+
+set.seed(120)
+sampled_people_id <- sample(unique(tmp_train_mixed$people_id), 6)
+ggplot(data=tmp_train_mixed[people_id %in% sampled_people_id], mapping=aes(x=date, y=outcome, color=people_id)) + geom_point() + geom_line()+ facet_grid(people_id~.)
+
+```
+
+What we notice is that in most cases the outcome changes only once during the history recorded in train dataset. And, as you might remember from the chart above the share of people who "change" their outcome is relatively small. One more observation is the "change line" is never vertical. Which means that "change of outcome" never happens within the same date (most often then not there's actually significant "gap" between observations with different "outcome"). This is key insight! Basically the problem boils down to predicting this "change event" and then filling in the data in both directions. So we will be working on time series features for this dataset.
+
+Train and test set is split by people_id, so this insight is helpful, but it is not yet a leak. If we could find something that is similar between people in train and test set, then we could exploit this insight in test set as well. Again, what we after is two things: people in test set who "changed" outcome, and, ideally, **when** they changed the outcome.
+
+For this to happen there should be variable(s) in people dataset which we would be able to use to "cluster" the people and infer something about the people in the test set. We will start with factors with high cardinality first, since they are likely to reflect variety of customers. First suspect is `group_1` (Alternatively it can be  `char_3`, `char_4` or `char_7`). Lets rerun the previous chart grouped by 6 randomly sampled `group_1`
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+set.seed(120)
+sampled_group_1 <- sample(unique(tmp_train_mixed$group_1), 6)
+ggplot(data=tmp_train_mixed[group_1 %in% sampled_group_1], mapping=aes(x=date, y=outcome, color=group_1)) + geom_point() + geom_line()+ facet_grid(group_1~.) + 
+  ggtitle("Train outcome by date (by group_1)")
+
+# Try rerunning the above chart with other variables instead of group_1. You will see the striking difference!
+
+```
+
+Wow!, So it looks exactly the same as `people_id`. We could say the task here is to predict "change points" per `group_1`. Let's bring the test set and see it fits.
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data=tmp_all_mixed[group_1 %in% sampled_group_1], mapping=aes(x=date, y=outcome, color=group_1, shape=outcome==0.5, linetype=outcome==0.5)) + geom_point() + geom_line()+ facet_grid(group_1~.) + 
+  ggtitle("Train outcome by date (by group_1)")
+```
+
+These data points that are "in the middle" should be placed into the respective groups (either 0 or 1) to form one consistent line.
+
+
+# Burning questions
+
+There's one important question, which is: what does the task look like at the group level:
+
+* How many groups have only one outcome ("uniform group")? After making sure that all test datapoints fall between the train dates, this can be simply majority filled with 0's or 1's.
+* How many groups exhibit both outcomes ("ambivalent group") (need to find the "break-point")
+* How many groups have no benchmark in train dataset? (Most problematic). These may be ambivalent or uniform, we dont know. 
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+tmp <- rbindlist(list(tmp_train, tmp_test), use.names = T)
+tmp_grp_long <- tmp[, .N, by=.(group_1, outcome)]
+tmp_grp_wide <- dcast(tmp_grp_long, group_1 ~ outcome, value.var="N", fill=0)
+names(tmp_grp_wide) <- c("group_1", "train_0", "test_x", "train_1")
+
+tmp_grp_wide[, type:="uniform"]
+tmp_grp_wide[train_0==0 & train_1==0, type:="unknown"]
+tmp_grp_wide[train_0>0 & train_1>0, type:="ambivalent"]
+
+ggplot(data=tmp_grp_wide[,.N,by=type], mapping=aes(x=type, y=N))+geom_bar(stat="identity")+
+  ggtitle("Number of groups by group type")
+```
+
+Finally, how many activities are in each group? I.e. if we random-guess these, what is the maximum score we can get based on maximum entropy? Hopefully xgboost and char_38 will offer some clues.
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+
+tmp_grp_wide[, n_act:=train_0+test_x+train_1]
+ggplot(tmp_grp_wide[, .(activities_count=sum(n_act)), by=type], mapping=aes(x=type, y=activities_count))+geom_bar(stat="identity")+
+  ggtitle("Number of activities by group type")
+
+```
+
+One more interesting questions. Among those ambivalent groups, how many are changing once (0->1 or 1->0) vs those who change labels several times.
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+setkey(tmp_train, group_1, date)
+tmp_grp_long_t <- tmp_train[, diff_outcome:=shift(outcome, type="lag", fill=NA)-outcome, by=group_1]
+tmp_grp_long_t <- tmp_train[, .N, by=.(group_1, diff_outcome)]
+tmp_grp_wide_t <- dcast(tmp_grp_long_t, group_1 ~ diff_outcome, value.var = "N", fill=0)
+names(tmp_grp_wide_t) <- c("group_1", "Zero_One", "Uniform", "One_Zero", "NotExist")
+tmp_grp_wide_t[, NotExist:=NULL]
+
+tmp_grp_wide_t[, type:="Uniform"]
+tmp_grp_wide_t[Zero_One==0 & One_Zero>0, type:="One to Zero"]
+tmp_grp_wide_t[Zero_One>0 & One_Zero==0, type:="Zero To One"]
+tmp_grp_wide_t[Zero_One>0 & One_Zero>0, type:="Bouncing"]
+
+ggplot(data=tmp_grp_wide_t[,.N,by=type], mapping=aes(x=type, y=N))+geom_bar(stat="identity")+
+  ggtitle("Number of groups by group type")
+
+kable(tmp_grp_wide_t[,.N,by=type])
+
+```
+
+Out of those that are "bouncing", How many change prediction more then twice? 
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+
+tmp_grp_wide_t[, ChangeOfSign:=Zero_One+One_Zero]
+ggplot(data=tmp_grp_wide_t[ChangeOfSign>1,.N,by=ChangeOfSign], mapping=aes(x=as.integer(ChangeOfSign), y=N))+geom_bar(stat="identity")+
+  ggtitle("Number of groups by group type")
+table(tmp_grp_wide_t$ChangeOfSign, useNA="ifany")
+write.csv(tmp_grp_wide_t, "tmp_grp_wide_t.csv", row.names=FALSE, quote = FALSE)
+
+```
+
+What what is the group id for that one group that changes the sign three times? **`r tmp_grp_wide_t[ChangeOfSign==3, .(group_1)]`**
+Lets see this one and some other groups on the time chart (test set gata points shown at `outcome==0.5`)
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+
+groups_to_show <- c("group 12187", "group 10089", "group 10159", "group 10267", "group 10293")
+ggplot(tmp_all_mixed[group_1 %in% groups_to_show], mapping=aes(x=date, y=outcome, color=group_1, shape=outcome==0.5))+geom_point()+geom_line() + facet_grid(group_1~.) + 
+    ggtitle("Some groups with change of sign (based on train)")
+    
+```
+
+# Train/Test split
+
+There was an argument on the forum regarding the possible principle for splitting the Public/Private LB (competition organizers say it is split 30%:70%)
+So the question is: "is it possible that this leak is present only in the public LB, i.e. that the LB is split is by group_1?"
+Well, for that we need to see how many records with "known" group_1 is present in the test set and whether or not the "unseen" groups account for the 70% of the test set.
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+train_groups <- unique(tmp_train$group_1)
+tmp_test[!(group_1 %in% train_groups),.N]/nrow(tmp_test)
+```
+
+Conclusion, Public/Private LB is split by `people_id` and the leak is presnt in the Private LB as well. 

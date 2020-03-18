@@ -1,0 +1,2481 @@
+---
+title: "Kiva Data Exploration"
+author: Gabriel Preda
+date: "Created: 2018-03-03; Last updated:`r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+
+
+
+
+#**Introduction**
+
+
+
+[Kiva.org](www.kiva.org) is an online crowdfunding platform dedicated to extend financial services to poor people around the World.
+
+Kiva is inviting the Kaggle community to help them build more localized models to estimate the poverty levels of residents in the regions where Kiva has active loans.  
+
+
+
+![Kiva Logo, Wikimedia Commons](https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Kiva.org_logo_2016.svg/640px-Kiva.org_logo_2016.svg.png)
+
+
+
+## How Kiva works?
+
+
+
+The lending process by Kiva is simple, following just few steps:
+
+
+
+* The borrower mets with a Field Partner of Kiva and requests a loan;  
+
+* The Field Partner disburses a loan to the borrower;  
+
+* The Field Partner uploads the loan request to Kiva. The request is reviewed by a team of volunteer editors and translators and then published on Kiva.org;  
+
+* Kiva lenders found the loan request, and Kiva sends the loan to the Field Partner;  
+
+* The borrower makes repayments and the Field Partner send funds owed to Kiva. Kiva repays lenders;  
+
+* The lenders can make another loan, donate to Kiva or withdraw their money to their PayPal account. 70% of the lenders choose to fund another loan.  
+
+
+
+
+
+In this Kernel we will explore the data provided by Kiva, trying to understand the welfare condition of Kiva borrowers.
+
+
+
+#**Load the data**
+
+
+
+We include the R libraries used for data input, processing, analysis and visualization.
+
+
+
+```{r,message=FALSE,warning=FALSE}
+library(readr)
+library(knitr)
+library(kableExtra)
+library(formattable)
+library(dplyr)
+library(ggplot2)
+library(treemap)
+library(gridExtra)
+library(grid)
+library(fmsb)
+library(leaflet)
+library(plotly)
+packageVersion('plotly')
+options(knitr.table.format = "html") 
+```
+
+
+
+
+
+We use two datasets: Kiva own dataset and a dataset added by [SRK](https://www.kaggle.com/sudalairajkumar),
+
+[UN Data country profiles](https://www.kaggle.com/sudalairajkumar/undata-country-profiles) (reference [3]).
+
+We read the data files from the two dateaset.
+
+
+
+```{r,input_data, message=FALSE,warning=FALSE}
+# Kiva files
+loans_df <- read_csv('../input/data-science-for-good-kiva-crowdfunding/kiva_loans.csv')
+regions_df <- read_csv("../input/data-science-for-good-kiva-crowdfunding/kiva_mpi_region_locations.csv")
+themes_df <- read_csv("../input/data-science-for-good-kiva-crowdfunding/loan_theme_ids.csv")
+themes_region_df <- read_csv("../input/data-science-for-good-kiva-crowdfunding/loan_themes_by_region.csv")
+
+#UN Data files
+undata_country_df <- read_csv("../input/undata-country-profiles/country_profile_variables.csv")
+undata_kiva_country_df <- read_csv("../input/undata-country-profiles/kiva_country_profile_variables.csv")
+```
+
+
+
+#**Summary of the data**{.tabset .tabset-fade .tabset-pills}
+
+
+
+We have 4 data files in Kiva dataset, as following:
+
+
+
+* kiva_loans.csv (`r nrow(loans_df)` rows, `r length(names(loans_df))` columns)  
+
+* kiva_mpi_region_locations.csv (`r nrow(regions_df)` rows, `r length(names(regions_df))` columns)  
+
+* loan_theme_ids.csv (`r nrow(themes_df)` rows, `r length(names(themes_df))` columns)  
+
+* loan_themes_by_region.csv (`r nrow(themes_region_df)` rows, `r length(names(themes_region_df))` columns)  
+
+
+
+
+
+We have 2 data files in UN Data dataset, as following:
+
+
+
+* country_profile_variables.csv (`r nrow(undata_country_df)` rows, `r length(names(undata_country_df))` columns)  
+
+* kiva_country_profile_variables.csv (`r nrow(undata_kiva_country_df)` rows, `r length(names(undata_kiva_country_df))` columns)  
+
+
+
+
+
+
+
+##Loans
+
+```{r glimpse_loans}
+glimpse(loans_df)
+```
+
+
+
+##Region locations
+
+```{r glimpse_regions}
+glimpse(regions_df)
+```
+
+
+
+##Loan themes
+
+```{r glimpse_loans_theme}
+glimpse(themes_df)
+```
+
+
+
+##Loan themes by region
+
+```{r glimpse_loan_themes_region}
+glimpse(themes_region_df)
+```
+
+
+
+
+
+##UN Data countries
+
+```{r glimpse_undata_country}
+glimpse(undata_country_df)
+```
+
+
+
+##UN Data Kiva countries
+
+```{r glimpse_undata_kiva_country}
+
+glimpse(undata_kiva_country_df)
+
+```
+
+
+
+
+
+#**Loans in numbers**
+
+
+
+Let's explore now into more details the loans information.
+
+
+
+There are a number of **`r nrow(loans_df)`** loans in **`r nrow(plyr::count(loans_df$sector))`** sectors, for **`r nrow(plyr::count(loans_df$activity))`** activities, in **`r nrow(plyr::count(loans_df$country))`** countries and
+
+in **`r nrow(plyr::count(loans_df$region))`** different regions. The funded amounts are between **`r min(loans_df$funded_amount)`** and **`r sprintf("%3.1f",round(max(loans_df$funded_amount),0))`**  while the loan amount is between
+
+**`r min(loans_df$loan_amount)`** and **`r sprintf("%3.1f",round(max(loans_df$loan_amount),0))`**  in **`r nrow(plyr::count(loans_df$currency))`** different currencies. The term in months for repayment of loan ranges from **`r min(loans_df$term_in_months)`** and **`r round(max(loans_df$term_in_months),2)`** months.
+
+
+
+
+
+Let's represent all sectors, and top 20 for activities, countries and regions by number of loans.
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_number_of_loans}
+
+
+
+loans_df %>% group_by(sector) %>% summarise(nr = length(activity))  %>% ungroup() %>%
+  ggplot(aes(x = reorder(sector,nr), y = nr)) +
+  geom_bar(stat="identity", fill="lightblue", colour="black") +
+  #geom_text(aes(label=nr), hjust=0.2, position=position_dodge(width=0.6)) +
+  coord_flip() + theme_bw(base_size = 10)  +
+  labs(title="", x ="Sector (all)", y = "Number of loans") -> d1
+
+loans_df %>% group_by(activity) %>% summarise(nr = length(sector)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+  ggplot(aes(x = reorder(activity,nr), y = nr)) +
+  geom_bar(stat="identity", fill="gold", colour="black") +
+  #geom_text(aes(label=nr), hjust=-0.2, position=position_dodge(width=0.6)) +
+  coord_flip() + theme_bw(base_size = 10)  +
+  labs(title="", x ="Activities (top 20 by number of loans)", y = "Number of loans") -> d2
+
+loans_df %>% group_by(country) %>% summarise(nr = length(sector)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+  ggplot(aes(x = reorder(country,nr), y = nr)) +
+  geom_bar(stat="identity", fill="tomato", colour="black") +
+  #geom_text(aes(label=nr), hjust=-0.2, position=position_dodge(width=0.6)) +
+  coord_flip() + theme_bw(base_size = 10)  +
+  labs(title="", x ="Countries (top 20 by number of loans)", y = "Number of loans") -> d3
+
+
+
+loans_df %>% group_by(region) %>% summarise(nr = length(sector)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+  ggplot(aes(x = reorder(region,nr), y = nr)) +
+  geom_bar(stat="identity", fill="lightgreen", colour="black") +
+  #geom_text(aes(label=nr), hjust=-0.2, position=position_dodge(width=0.6)) +
+  coord_flip() + theme_bw(base_size = 10)  +
+  labs(title="", x ="Regions (top 20 by number of loans)", y = "Number of loans") -> d4
+
+grid.arrange(d1, d2, d3, d4, ncol=2)
+```
+
+
+
+
+
+First three sectors in termns of number of loans are Agriculture, Food, Retail, all with over 100,000 loans. 
+
+The first two activities are Farming and General Store, both with over 60,000 loans. Philippines is dominating the countries top, with over 150,000 loans, followed, at large distance, by Kenya and El Salvador. The top 3 identified 
+regions are Kaduna, Lahore and Rawalpindi. 
+
+Most of the loans are registered under `unknown` region (we can suppose that most of them will go to Philippines, but we will have to verify this).
+
+
+
+
+
+## Loans per country and region
+
+
+
+Let's represent now the number of loans aggregated per country and region, as a treemap. We will filter only the first 100 entries/country. To show more than 100 entries/country is not necessary, since it will became very difficult to visualize (and is also using a lot of resources).
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_number_of_loans_treemap}
+
+loans_df %>% group_by(country, region) %>% summarise(nr = length(activity)) %>% top_n(100,wt=nr) %>% ungroup() %>%
+
+ treemap(
+
+        index=c("country","region"), 
+
+        type="value",
+
+        vSize = "nr",  
+
+        vColor = "nr",
+
+        palette = "RdBu",  
+
+        title=sprintf("Loans per country and region"), 
+
+        title.legend = "Number of loans",
+
+        fontsize.title = 14 
+
+    )
+
+```
+
+
+
+
+
+We confirm again that most of the loans are going to Philippines. In terms of regions with maximum of loans, we see
+
+that the top is formed by unknown regions in El Salvador, Kenya, Nigeria, Rwanda and ... United States. Our
+
+supposition that unknown regions will be majoritary in Philippines was proved wrong.
+
+
+
+Let's represent the number of loans per country (**hover over the countries to see the details for each country**).
+
+
+
+
+
+```{r fig.width=9, fig.height=7, plotly_kiva_kiva_countries_nr_loans, warnings=FALSE}
+
+
+
+loans_df %>% 
+
+  group_by(country) %>% summarise(nr = length(loan_amount)) %>% ungroup() -> loan_all
+
+# light grey boundaries
+
+l <- list(color = toRGB("grey"), width = 0.5)
+
+
+
+loan_all$hover <- with(loan_all, 
+
+        paste('Country; ', country, '<br>',
+
+              'Number of loans: ',nr
+
+          ))
+
+# specify map projection/options
+
+g <- list(
+
+  showframe = TRUE,
+
+  showcoastlines = TRUE,
+
+  projection = list(type = 'Mercator')
+
+)
+
+
+
+plot_geo(loan_all, locationmode = 'country names') %>%
+
+  add_trace(
+
+    z = ~nr, color = ~nr, colors = 'Spectral',
+
+    text = ~hover, locations=~country, marker = list(line = l)
+
+  ) %>%
+
+  colorbar(title = 'Loans', tickprefix = '') %>%
+
+  layout(
+
+    title = 'Loans per country<br>Source:<a href="https://www.kaggle.com/kiva/data-science-for-good-kiva-crowdfunding">Kiva - Data Science for Good</a>',
+
+    geo = g
+
+  )
+
+```
+
+
+
+We can confirm here that few countries have the majority of the loans, with Phillipines, El Salvador, Kenya, Nigeria, Rwanda in top.
+
+
+
+## Loans per sector and activity
+
+
+
+Let're represent now the treemap for the couple {*sectors*, *activities*}, showing the size and color of tiles proportional 
+
+with the number of loans.
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_sector_activity_treemap}
+
+loans_df %>% group_by(sector, activity) %>% summarise(nr = length(country)) %>% top_n(100,wt=nr) %>% ungroup() %>%
+
+ treemap(
+
+        index=c("sector","activity"), 
+
+        type="value",
+
+        vSize = "nr",  
+
+        vColor = "nr",
+
+        palette = "RdBu",  
+
+        title=sprintf("Loans per sector and activity"), 
+
+        title.legend = "Number of loans",
+
+        fontsize.title = 14 
+
+    )
+
+```
+
+
+
+This treemap is beautifully picturing the image of what Kiva micro loans are doing for the poor people. They invest
+
+mostly in Agriculture (Farming, Agriculture, Pigs, Dairy, Livestock), Retail (General Store, Retail, Charcol Sales,
+
+Cosmetic Sales), Services (Services, Tailoring, Sewing, Beauty Salon), Personal Use (Home Appliances, Home Energy,
+
+Personal Expenses), Education (Higher education costs, Education provider, Primary/secondary school costs). It is the
+
+image of a poor world striving to surpass its condition, to improve their life, with a minimum help.
+
+
+
+
+
+## Loans currencies
+
+
+
+
+
+Let's see now what are the currencies in which these loans are given.
+
+
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_country_courency_treemap}
+
+loans_df %>% group_by(currency,country) %>% summarise(nr = length(country)) %>% top_n(100,wt=nr) %>% ungroup() %>%
+
+ treemap(
+
+        index=c("currency","country"), 
+
+        type="value",
+
+        vSize = "nr",  
+
+        vColor = "nr",
+
+        palette = "RdBu",  
+
+        title=sprintf("Loans per currency and country"), 
+
+        title.legend = "Number of loans",
+
+        fontsize.title = 14 
+
+    )
+
+```
+
+
+
+
+
+Most of the loans are in PHP (for Philippines - which is natural, since Phillipines has most of the loans) and in USD 
+
+(El Salvador, Ecuador, Palestine, Lebanon, United States, Cambodia, Nicaragua).
+
+
+
+Let's check as well the distribution of loan amount for the loans in USD, the term in months and the repayment interval.
+
+
+
+
+
+We start with the distribution of loan amount for the loans in USD, grouped by sectors. We will also remove upper
+
+99% quantile.
+
+
+
+```{r fig.width=10, fig.height=6, loans_amount}
+
+
+
+#remove upper 99% quantile and show only USD loans
+
+loans_df %>% filter(currency == "USD") %>% filter(loan_amount < quantile(loan_amount, 0.99)) %>% select(sector, currency, loan_amount) -> ldfc
+
+
+
+ggplot(ldfc, aes(x=sector, y=loan_amount, col=sector)) + 
+
+  geom_boxplot() +  guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Sector", y="Amount of USD loans", 
+
+                                   title="Boxplot distribution of USD loans amount",
+
+                                   subtitle="Grouped by sector, removed 99% quantile")
+
+
+
+```
+
+
+
+We can see that for **Housing** sector, both the average and variation of values are smallest whilst
+
+for **Entertainment** the average is the largest as well as the variation. Also there are a lot of outliers
+
+in the fourth Quartile.
+
+
+
+
+
+Let's show on a map the geographical distribution of USD loans (**hover over the countries to see the details for each country**).
+
+
+
+
+
+```{r fig.width=9, fig.height=7, plotly_kiva_kiva_countries_us_loans, warnings=FALSE}
+
+
+
+loans_df %>% filter(currency == "USD") %>% 
+
+  group_by(country) %>% summarise(amount = sum(loan_amount)) %>% ungroup() -> loan_us
+
+# light grey boundaries
+
+l <- list(color = toRGB("grey"), width = 0.5)
+
+
+
+loan_us$hover <- with(loan_us, 
+
+        paste('Country; ', country, '<br>',
+
+              'Loan amount: $',round(amount/10^6,2), 'M'
+
+          ))
+
+# specify map projection/options
+
+g <- list(
+
+  showframe = TRUE,
+
+  showcoastlines = TRUE,
+
+  projection = list(type = 'Mercator')
+
+)
+
+
+
+plot_geo(loan_us, locationmode = 'country names') %>%
+
+  add_trace(
+
+    z = ~amount, color = ~amount, colors = 'Spectral',
+
+    text = ~hover, locations=~country, marker = list(line = l)
+
+  ) %>%
+
+  colorbar(title = 'Loan amounts\n(USD)', tickprefix = '$') %>%
+
+  layout(
+
+    title = 'Countries wih loans in USD - loan amount (USD)<br>Source:<a href="https://www.kaggle.com/kiva/data-science-for-good-kiva-crowdfunding">Kiva - Data Science for Good</a>',
+
+    geo = g
+
+  )
+
+```
+
+
+
+
+
+## Loan repayment term
+
+
+
+We follow with the distribution of the loan repayment term (in months), grouped by sectors.
+
+
+
+```{r fig.width=10, fig.height=6, loans_repayment_months}
+
+ggplot(loans_df, aes(x=sector, y=term_in_months, col=sector)) + 
+
+  geom_boxplot() +  theme_bw() + coord_flip() + guides(col=FALSE) +
+
+  labs(x="Sector", y="Loans repayment term (months)", 
+
+      title="Loans repayment term (months)", subtitle="Grouped by sector")
+
+```
+
+
+
+We observe that most of the Sectors have small repayment period, with around 12 month average (with **Food** 
+
+and **Retail** with lowest averages). The largest average values are for **Entertainment**, **Education** and **Housing**.
+
+**Education** has a lot of outliers in the upper Quartile which shows a larger spread of repayment months, up to 150 months.
+
+
+
+## Loan repayment interval
+
+
+
+We show here the number of loans for each Sector, grouped by repayment interval (monthly, irregular, weekly, bullet).
+
+
+
+```{r fig.width=10, fig.height=6, loans_repayment_interval}
+
+loans_df %>% group_by(sector,repayment_interval) %>% summarise(nr = length(funded_amount))  %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(sector,nr), y = nr/1000, fill=repayment_interval)) +
+
+  geom_bar(stat="identity", aes(fill=repayment_interval), colour="black") +
+
+  coord_flip() + theme_bw(base_size = 12)  + 
+
+  labs(title="", x ="Sector", y = "Number of loans (thousands)", fill="Repayment interval",
+
+       main="Repayment interval")
+
+```
+
+
+
+
+
+The majority of repayments are done **monthly** or **irregular**. **Bullet** payments are less and are done mostly for loans in 
+
+agriculture sector (revenue in agriculture is highly sesonal, and a bullet payment will make sense at harvest time).
+
+**Weekly** repayments are just a few.
+
+
+
+## Loan borrowers
+
+
+
+For a loan can be more than one borrower. They can be all females, all males or both males and females.
+
+Let's calculate the number of female and male borrowers for each loan.
+
+
+
+```{r loans_borrowers}
+
+strcount <- function(x, pattern, split){
+
+  unlist(lapply(strsplit(x, split), function(z) na.omit(length(grep(pattern, z)))))
+
+}
+
+loans_df$nMale <- strcount(loans_df$borrower_genders, "^male", " ")
+
+loans_df$nFemale = strcount(loans_df$borrower_genders, "female", " ")
+
+```
+
+
+
+There are totally ``r sum(loans_df$nFemale)`` female borrowers and only ``r sum(loans_df$nMale)`` male borrowers. The
+
+maximum number of female borrowers for a loan is ``r max(loans_df$nFemale)`` and the maximum number of male borrowers
+
+for a loan is ``r max(loans_df$nMale)``.
+
+
+
+Let's calculate the number of loans with only female borrowers, with only male borrowers, with both male and female
+
+and not specified. This is not the number of borrowers, but of loans with different type of borrowers. 
+
+
+
+
+
+```{r }
+
+loans_df$borrowers_gen = "Not specified"
+
+loans_df$borrowers_gen[(loans_df$nMale != 0 & loans_df$nFemale == 0)] = "Male"
+
+loans_df$borrowers_gen[(loans_df$nMale == 0 & loans_df$nFemale != 0)] = "Female"
+
+loans_df$borrowers_gen[(loans_df$nMale != 0 & loans_df$nFemale != 0)] = "Female & Male"
+
+
+
+loans_df %>% group_by(borrowers_gen) %>% summarise(nr = length(borrower_genders)) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(borrowers_gen,nr), y = nr/1000)) +
+
+  geom_bar(stat="identity", aes(fill=borrowers_gen), colour="black") +
+
+  theme_bw(base_size = 12)  +
+
+  labs(title="Number of loans/borrowers gender", x ="Gender", y = "Number of loans (thousands)", fill="Borrowers genders")
+
+```
+
+
+
+Majority of loans are with female-only borrowers, then, on second place, the loans with male-only borrowers.
+
+
+
+Let's see the distribution of female and male borrowers. First, let's see the average numbers of female and male
+
+borrowers per Sector. We will only consider the loans where at least one female borrower is present or at least one
+
+male borrower is present in calculation of the average value.
+
+
+
+```{r fig.width=10, fig.height=4,loan_borrowers_1}
+
+loans_df %>% filter(nFemale != 0) %>% group_by(sector) %>% summarise(nrF = mean(nFemale))  %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(sector,nrF), y = nrF)) +
+
+  geom_bar(stat="identity", fill="tomato", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="Average number of female borrowers/loan", subtitle="Loans with at least one female borrower", 
+
+       x ="Sector (all)", y = "Average number of female borrowers/loan") -> d1
+
+loans_df %>% filter(nMale != 0) %>% group_by(sector) %>% summarise(nrM = mean(nMale))  %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(sector,nrM), y = nrM)) +
+
+  geom_bar(stat="identity", fill="lightblue", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="Average number of male borrowers/loan", subtitle="Loans with at least one male borrower",
+
+       x ="Sector (all)", y = "Average number of male borrowers/loan") -> d2
+
+grid.arrange(d1,d2,ncol=2)
+
+```
+
+
+
+
+
+The average number of female borrowers/loan is 2.7 for **Clothing** sector, 2.6 for **Personal Use** and 2.4 for **Food**, with very close to 2 for **Agriculture** and **Constructions**.
+
+The average number of male borrowers/loan is very close to 1.75 for **Food**, **Agriculture**, **Clothing** and
+
+**Personal Use**.
+
+
+
+Let's represent now the distribution of the number of male and female borrowers (including now the 0 values) 
+
+using Boxplot.
+
+
+
+```{r fig.width=10, fig.height=6,loan_borrowers_2}
+
+loans_df  %>% group_by(sector) %>% ungroup() %>%
+
+  ggplot(aes(x=reorder(sector,nFemale), y= nFemale, col=sector)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Sector", y="Number of female borrowers/loan", col="Sector",
+
+                                   title="Boxplot distribution | female borrowers/loan",
+
+                                   subtitle="Grouped by sector") -> d1
+
+loans_df %>% group_by(sector) %>% ungroup() %>%
+
+  ggplot(aes(x=reorder(sector,nMale), y= nMale, col=sector)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Sector", y="Number of male borrowers/loan", col="Sector",
+
+                                   title="Boxplot distribution | male borrowers/loan",
+
+                                   subtitle="Grouped by sector") -> d2
+
+grid.arrange(d1,d2,ncol=2)
+
+```
+
+
+
+
+
+Most of the values are, as expected, in the 0-2 range, with maximum variation for **Clothing**, **Food** and **Retail** for female and **Personal Use** and **Agriculture** for male.
+
+
+
+Let's check as well the loan repayment interval, grouped on female only, male only and mix gender borrowers. We also group by repayment interval (monthly, irregular, weekly, bullet).
+
+
+
+```{r fig.width=10, fig.height=6, loans_repayment_interval_borrowers}
+
+loans_df %>% group_by(borrowers_gen, repayment_interval) %>% summarise(nr = length(borrower_genders)) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(borrowers_gen,nr), y = nr/1000, fill=repayment_interval)) +
+
+  geom_bar(stat="identity", aes(fill=repayment_interval), colour="black") +
+
+  coord_flip() + theme_bw(base_size = 12)  +
+
+  labs(title="", x ="Borrower gender", y = "Number of loans (thousands)", fill="Repayment interval",
+
+       main="Repayment interval")
+
+```
+
+
+
+We can observe that Female only borrowers groups have almost the same amount of loans with monthly and irregular
+
+repayment interval, only a small percent of the loans being paid back in one installment (bullet). The Male only
+
+borrowers groups have the majority of repayments of monthly type and a much more percent of bullet repayment type 
+
+than irregular. Bullet type is most probably characteristic to cyclic activities, like agriculture, when revenue is
+
+scarce and repayment is possible only at harvest time (or when harvest is paid).
+
+
+
+
+
+#**Loan amounts**
+
+
+
+## Total loan amounts
+
+
+
+Let's represent all sectors, and top 20 for activities, countries and regions by total founded amount of loans. Since
+
+the amount is in various currencies, the comparative value will be less relevant. Values for total amounts are in millions.
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_total_founded_amount_of_loans}
+
+loans_df %>% group_by(sector) %>% summarise(nr = sum(funded_amount))  %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(sector,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="blue", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Sector (all)", y = "Founded amount of loans (total, millions)") -> d1
+
+loans_df %>% group_by(activity) %>% summarise(nr = sum(funded_amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(activity,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="yellow", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Activities (top 20 by value of loans)", y = "Founded amount of loans (total, millions)") -> d2
+
+loans_df %>% group_by(country) %>% summarise(nr = sum(funded_amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(country,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="red", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Countries (top 20 by value of loans)", y = "Founded amount of loans (total, millions)") -> d3
+
+loans_df %>% group_by(region) %>% summarise(nr = sum(funded_amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(region,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="green", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Regions (top 20 by value of loans)", y = "Founded amount of loans (total, millions)") -> d4
+
+
+
+grid.arrange(d1, d2, d3, d4, ncol=2)
+
+```
+
+
+
+
+
+In terms of total amount, for the sectors the top 3 is unchanged (Agriculture, Food, Retail). For the activities, top 3 of total amount of loans is formed by Farming, General Store and Agriculture. First three countries are Philippines,
+
+Kenya and Peru. As for regions, the largest amounts are going to Goma, La Paz/El Alto and Cusco. Amounts (if in local
+
+currency) will be inflated by low exchange rate for the local currency.
+
+
+
+
+
+## Average values of loans
+
+
+
+Let's see what are actually the amounts of such loans. We show first the largest averages.
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_average_founded_amount_of_loans_max}
+
+loans_df %>% group_by(sector) %>% summarise(nr = mean(funded_amount))  %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(sector,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="magenta", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Sector (all)", y = "Founded amount of loans (average)") -> d1
+
+loans_df %>% group_by(activity) %>% summarise(nr = mean(funded_amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(activity,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="cyan", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Activities (top 20 by value of loans)", y = "Founded amount of loans (average)") -> d2
+
+loans_df %>% group_by(country) %>% summarise(nr = mean(funded_amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(country,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="tomato", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Countries (top 20 by value of loans)", y = "Founded amount of loans (average)") -> d3
+
+loans_df %>% group_by(region) %>% summarise(nr = mean(funded_amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(region,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="gold", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Regions (top 20 by value of loans)", y = "Founded amount of loans (average)") -> d4
+
+grid.arrange(d1, d2, d3, d4, ncol=2)
+
+```
+
+
+
+The maximum averages values of loans are for Wholesale, Entertaining and Clothing Sectors. As per Activities,
+
+the maximum averages values of loans are for Landscaping/Gardening, Renewable Energy Products, Technology and 
+
+Communications. The countries with largest average values for loans are Cote d'Ivoire, Mauritania and Bhutan.
+
+The regions with largest average values for loans are Tsihombe, Simeulue, Parakou, MUSOMA, Kolia, Juba, Cerrik.
+
+
+
+Let's see now the smallest average values.
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_average_founded_amount_of_loans_min}
+
+loans_df %>% group_by(sector) %>% summarise(nr = mean(funded_amount))  %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(sector,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="magenta", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Sector (all)", y = "Founded amount of loans (average)") -> d1
+
+loans_df %>% group_by(activity) %>% summarise(nr = mean(funded_amount)) %>% top_n(-20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(activity,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="cyan", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Activities (bottom 20 by value of loans)", y = "Founded amount of loans (average)") -> d2
+
+loans_df %>% group_by(country) %>% summarise(nr = mean(funded_amount)) %>% top_n(-20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(country,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="tomato", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Countries (bottom 20 by value of loans)", y = "Founded amount of loans (average)") -> d3
+
+loans_df %>% group_by(region) %>% summarise(nr = mean(funded_amount)) %>% top_n(-20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(region,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="gold", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Regions (bottom 20 by value of loans)", y = "Founded amount of loans (average)") -> d4
+
+grid.arrange(d1, d2, d3, d4, ncol=2)
+
+```
+
+
+
+
+
+The smallest averages values of loans/Sector are for the sectors: Transportation, Housing and Personal Use. As per Activities,
+
+the smallest averages values of loans are for the activities: Balut-Making, Celebrations and Home Appliances.
+
+The countries with smallest average values for loans are Togo, Nigeria and Virgin Islands.
+
+The regions with smallest average values for loans are Kharberd Village, Bontoc Southern Leyte, Balanamao, Plaridel Mis. Occ. and Alejandria.
+
+
+
+
+
+
+
+
+
+#**Loan theme**
+
+
+
+The loan theme is matching the loan `id` with a `Loan theme ID`, a `Loan Theme Type` and the `Partner ID`.
+
+The most frequent `Loan Theme Type`s are shown in the following graph. 
+
+
+
+## Loan theme type
+
+
+
+Let's represent the number of loans grouped by Loan Theme Type.
+
+
+
+```{r fig.width=12, fig.height=8, loans_theme}
+
+themes_df %>% group_by(`Loan Theme Type`) %>% summarise(nr = length(id)) %>% top_n(50,`Loan Theme Type`) %>%
+
+  ungroup() %>% ggplot(aes(x = reorder(`Loan Theme Type`,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="lightblue", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 11)  +
+
+  labs(x ="Loan Theme Type", y = "Number of loans",title="Loan Theme type (top 50)")
+
+```
+
+
+
+The Loan Theme Types with most numerous loans are `Underserved`, `Water`, `Vulnerable population`, 
+
+`Water and Sanitation` and `Startup`. 
+
+
+
+
+
+## Loan theme by region
+
+
+
+The number of loans and amount of loans are aggregated in another dataset, `loan_themes_by_region.csv`. We will
+
+explore the loans information from this source as well.
+
+
+
+### Loan amounts totals
+
+
+
+Let's show the amount of loans grouped by `sector` and top 20 `country`, `Loan Theme type` and `mpi_region`.
+
+
+
+
+
+```{r fig.width=12, fig.height=10, loans_theme_region_amount}
+
+themes_region_df %>% group_by(sector) %>% summarise(nr = sum(amount))  %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(sector,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="magenta", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Sector (all)", y = "Amount of loans (total, millions)") -> d1
+
+themes_region_df %>% group_by(country) %>% summarise(nr = sum(amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(country,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="cyan", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Countries (top 20 by value of loans)", y = "Amount of loans (total, millions)") -> d2
+
+themes_region_df %>% group_by(`Loan Theme Type`) %>% summarise(nr = sum(amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(`Loan Theme Type`,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="tomato", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="Loan Theme Type (top 20 by value of loans)", y = "Amount of loans (total, millions)") -> d3
+
+themes_region_df %>% group_by(mpi_region) %>% summarise(nr = sum(amount)) %>% top_n(20,wt=nr) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(mpi_region,nr), y = nr/10^6)) +
+
+  geom_bar(stat="identity", fill="gold", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="", x ="MPI Region (top 20 by value of loans)", y = "Amount of loans (total, millions)") -> d4
+
+grid.arrange(d1, d2, d3, d4, ncol=2)
+
+```
+
+
+
+
+
+
+
+`General Financial Inclusion` is the sector that gather several times more than the total of other sectors in 
+
+terms of total amount of loans. `Agriculture`, `Other` and `Water and Sanitation` are following. `Philippines`, 
+
+`Kenya` and `Paraguay` are the countries with largest total amounts of loans. The three first MRI regions in terms
+
+of total amount of loans are `PRY`, `Central Visayas, Philippines` and `Cusco, Peru`.
+
+
+
+
+
+### Loan amounts distributions
+
+
+
+####Country
+
+
+
+Let's represent the boxplots distributions for the amount of loans, grouped by Country (first 50 countries). We will remove the 99% quantile.
+
+
+
+```{r fig.width=12, fig.height=6, loans_country_amount_quantile99}
+
+#remove upper 95% quantile and show only USD loans
+
+themes_region_df %>% filter(amount < quantile(amount, 0.99)) %>% select(country, amount) %>% top_n(50,wt=amount) -> tldfc
+
+ggplot(tldfc, aes(x=reorder(country,amount), y= amount, col=country)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Country", y="Amount of loans", 
+
+                                   title="Boxplot distribution of loans amount",
+
+                                   subtitle="Grouped by country (top 50), removed 99% quantile")
+
+```
+
+
+
+Kenya, Cambodgia, Peru, Senegal have the largest variations of loans amounts.
+
+
+
+####Sector
+
+
+
+Let's represent the boxplot for the amount of loans, grouped by Sector.
+
+
+
+```{r fig.width=10, fig.height=6, loans_sector_amount_quantile99}
+
+
+
+#remove upper 95% quantile and show only USD loans
+
+themes_region_df %>% filter(amount < quantile(amount, 0.99)) %>% select(sector, amount) -> tldfc
+
+
+
+ggplot(tldfc, aes(x=reorder(sector,amount), y= amount, col=sector)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Sector", y="Amount of loans", 
+
+                                   title="Boxplot distribution of loans amount",
+
+                                   subtitle="Grouped by sector, removed 99% quantile")
+
+
+
+```
+
+
+
+`SME Financial inclusion` and `DSE Direct` have both the largest average values of loans and largest variance from all sectors.
+
+`Agriculture` is a sector with both small average loan value and small variance. `General Financial inclusion` has a small variance
+
+with a lot of outliers in the superior Quartile.
+
+
+
+####Loan Theme type
+
+
+
+Let's represent the boxplot for the amount of loans, grouped by Loan Theme Type. We will also remove the
+
+99% quantile.
+
+
+
+```{r fig.width=10, fig.height=6, loans_loan_theme_type_amount_quantile99}
+
+
+
+#remove upper 95% quantile and show only USD loans
+
+themes_region_df %>% filter(amount < quantile(amount, 0.99)) %>% select(`Loan Theme Type`, amount) %>% top_n(50,wt=amount) -> tldfc
+
+
+
+ggplot(tldfc, aes(x=reorder(`Loan Theme Type`,amount), y= amount, col=`Loan Theme Type`)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Loan Theme Type", y="Amount of loans", 
+
+                                   title="Boxplot distribution of loans amount",
+
+                                   subtitle="Grouped by Loan Theme Type (top 50), removed 99% quantile")
+
+
+
+```
+
+
+
+In the `Loan Theme Type` set, the `Vulnerable Women` and `Vulnerable populations` have large average values for loans. The 
+
+loan theme types with smallest average values for loans are `Organic conversion` and `Community loan`. Largest variances have
+
+`Subsistence agriculture and solar lanterns`, `Agriculture` and `Underserved` theme types.
+
+
+
+####Field Partners
+
+
+
+Kiva works locally with a Field Partner, a micro-credit or financial institution that is actully lending the money to the borrower
+
+on behalf of Kiva. Let's see who are the most important Field Partners.
+
+
+
+
+
+Let's represent the boxplots distributions for the amount of loans, grouped by Field Partner Name - the local partner for financing and managing the loans (first 20 partners). We will remove the 99% quantile.
+
+
+
+```{r fig.width=10, fig.height=6, loans_Field_partner_amount_quantile99}
+
+
+
+#remove upper 95% quantile from amounts
+
+themes_region_df %>% filter(amount < quantile(amount, 0.99)) %>% select(`Field Partner Name`, amount) %>% top_n(20,wt=amount) -> tldfc
+
+
+
+ggplot(tldfc, aes(x=reorder(`Field Partner Name`,amount), y= amount, col=`Field Partner Name`)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Field Partner Name", y="Amount of loans", 
+
+                                   title="Boxplot distribution of loans amount",
+
+                                   subtitle="Grouped by Field Partner Name (top 20), removed 99% quantile")
+
+
+
+```
+
+
+
+`Juhudi Kilimo`, `CrediCampo` and `One Acre Found` are the local Field Partner organizations that offers loans
+
+with the highest average value (and very small variance). `KREDIT Microfinance Institution` and 
+
+`Negros Women for Tomorrow Foundation` are providing the largest amounts of loans and with the largest variation 
+
+of values.
+
+
+
+Let's see now what are the top 20 Field Partners by toal number of loans, average number of loans, average values of loans, 
+
+total amount of loans.
+
+
+
+```{r fig.width=12, fig.height=8, loans_Field_partner_amount_avg_nr_max}
+
+
+
+themes_region_df %>% group_by(`Field Partner Name`) %>% 
+
+  summarise(as = sum(amount), am = mean(amount), an = sum(number), anm = mean(number))  -> fieldPart
+
+
+
+fieldPart %>% top_n(20,wt=as) -> fieldPart1
+
+fieldPart %>% top_n(20,wt=am) -> fieldPart2
+
+fieldPart %>% top_n(20,wt=an) -> fieldPart3
+
+fieldPart %>% top_n(20,wt=anm) -> fieldPart4
+
+
+
+ggplot(fieldPart1, aes(x=reorder(`Field Partner Name`,as), y= as, col=`Field Partner Name`)) + 
+
+  geom_bar(stat="identity", fill="gold", colour="black") +  coord_flip() + theme_bw(base_size = 8)  +
+
+  labs(x="Field Partner Name", y="Total amount of loans", 
+
+  title="Loan total amounts", subtitle="Field Partner Name (top 20)") -> d1
+
+
+
+ggplot(fieldPart2, aes(x=reorder(`Field Partner Name`,am), y= am, col=`Field Partner Name`)) + 
+
+  geom_bar(stat="identity", fill="lightblue", colour="black") +  coord_flip() + theme_bw(base_size = 8)  +
+
+  labs(x="Field Partner Name", y="Average amount of loans", 
+
+  title="Loan average amounts", subtitle="Field Partner Name (top 20)") -> d2
+
+
+
+ggplot(fieldPart3, aes(x=reorder(`Field Partner Name`,an), y= an, col=`Field Partner Name`)) + 
+
+  geom_bar(stat="identity", fill="lightgreen", colour="black") +  coord_flip() + theme_bw(base_size = 8)  +
+
+  labs(x="Field Partner Name", y="Total number of loans", 
+
+  title="Total number of loans", subtitle="Field Partner Name (top 20)") -> d3
+
+
+
+ggplot(fieldPart4, aes(x=reorder(`Field Partner Name`,anm), y= anm, col=`Field Partner Name`)) + 
+
+  geom_bar(stat="identity", fill="tomato", colour="black") +  coord_flip() + theme_bw(base_size = 8)  +
+
+  labs(x="Field Partner Name", y="Average number of loans", 
+
+  title="Average number of loans", subtitle="Field Partner Name (top 20)") -> d4
+
+
+
+grid.arrange(d1,d2,d3,d4,ncol=2)
+
+
+
+```
+
+
+
+Let's represent as well a treemap with sector and Field Partner Name, the color intensity showing the number of loans and the size
+
+the total amount.
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_field_partner_sector}
+
+themes_region_df %>% group_by(sector, `Field Partner Name`) %>% summarise(amnt = sum(amount), nr = sum(number)) %>% top_n(100,wt=nr) %>% ungroup() %>%
+
+ treemap(
+
+        index=c("sector","Field Partner Name"), 
+
+        type="value",
+
+        vSize = "amnt",  
+
+        vColor = "nr",
+
+        palette = "RdBu",  
+
+        title=sprintf("Loans per sector and Field Partner Name (area ~ total amount of loans, color ~ total number of loans)"), 
+
+        title.legend = "Total number of loans",
+
+        fontsize.title = 14 
+
+    )
+
+```
+
+
+
+Most of the Field Partners are active in a single region and sector. Most of the loans and loan amounts are directed to the 
+
+`General Financial Inclusion` sector. Let's set apart this sector to visualize with more details the rest of the sectors and
+
+local Field Partners.
+
+
+
+
+
+```{r fig.width=12, fig.height=10, loans_per_field_partner_sector2}
+
+themes_region_df %>% filter(sector != "General Financial Inclusion") %>% group_by(sector, `Field Partner Name`) %>% 
+
+  summarise(amnt = sum(amount), nr = sum(number)) %>% top_n(100,wt=nr) %>% ungroup() %>%
+
+ treemap(
+
+        index=c("sector","Field Partner Name"), 
+
+        type="value",
+
+        vSize = "amnt",  
+
+        vColor = "nr",
+
+        palette = "RdBu",  
+
+        title=sprintf("Loans per sector and Field Partner Name (area ~ total amount of loans, color ~ total number of loans)"), 
+
+        title.legend = "Total number of loans",
+
+        fontsize.title = 14 
+
+    )
+
+```
+
+
+
+
+
+`One Acre Found` is the most active in `Agriculture` sector, both as total number of loans and the total amount of loans. `iDE Cambodia`
+
+is the most active in `Water and Sanitation` sector, as well for both total number of loans and the total amount of loans. 
+
+
+
+
+
+### World Map with Loan Regions and Themes
+
+
+
+Let's represent now the data on a leaflet map. For each data point we will plot a circle on the map. The circle
+
+color will be proportional with the amount of the loans specific to the respective data entry.
+
+
+
+
+
+```{r themes_region_locations,message=FALSE, warning=FALSE}
+
+#eliminate regions with wrong MPI value
+
+themes_region_df %>% filter(!is.na(amount)) %>%
+
+  #eliminate regions with wrong lat/lon
+
+  filter(lat>=-90 & lat<=90 & lon<=180 & lon>=-180) %>% ungroup() -> themes_region_df_clean
+
+
+
+
+
+minAmount = min(themes_region_df_clean$amount)
+
+maxAmount = max(themes_region_df_clean$amount)
+
+
+
+themes_region_df_clean$color = log(themes_region_df_clean$amount)
+
+
+
+minCol = min(themes_region_df_clean$color)
+
+maxCol = max(themes_region_df_clean$color)
+
+
+
+bins <- c(minCol,  5, 10, maxCol)
+
+
+
+pal <- colorBin("Blues", domain = themes_region_df_clean$color, bins = bins)
+
+
+
+leaflet(data=themes_region_df_clean) %>%
+
+  addTiles() %>%
+
+  addCircles(lat=themes_region_df_clean$lat, lng=themes_region_df_clean$lon, radius=12, color=~pal(themes_region_df_clean$color),
+
+             popup= paste("<strong>Location Name: </strong>", themes_region_df_clean$`Location Name`,
+
+                          "<br><strong>Field Partner Name: </strong>", themes_region_df_clean$`Field Partner Name`,
+
+                          "<br><strong>ISO: </strong>", themes_region_df_clean$ISO,
+
+                          "<br><strong>Country: </strong>", themes_region_df_clean$country,
+
+                          "<br><strong>Region: </strong>", themes_region_df_clean$region,
+
+                          "<br><strong>MPI Region: </strong>", themes_region_df_clean$mpi_region,
+
+                          "<br><strong>Amount: </strong>", themes_region_df_clean$amount,
+
+                          "<br><strong>Forkiva: </strong>", themes_region_df_clean$forkiva,
+
+                          "<br><strong>Rural pct.: </strong>", themes_region_df_clean$rural_pct,
+
+                          "<br><strong>Geolocation: </strong>", themes_region_df_clean$geo
+
+             )) %>%
+
+    addLegend("topright", pal = pal, 
+
+            values = c(minCol, maxCol),
+
+            title = "log(loan amount)",
+
+            labFormat = labelFormat(suffix = ""),
+
+            opacity = 0.6
+
+            )
+
+```
+
+
+
+Click on the circles on the map to see details for each theme region.
+
+
+
+
+
+
+
+#**Multidimensional Poverty Index (MPI) Region locations**
+
+
+
+
+
+We will represent the regions locations using a leaflet map. We will first remove the wrong (lat,long) and we will remove as well the wrong MPI values. Each region will be represented with a circle centered in the geographical 
+
+position of the MPI. Circle color is proportional with value of MPI (from red assigned to maximum value of MPI to green assigned to minimum value of MPI).
+
+
+
+## A World Map view on Poverty
+
+
+
+```{r mpi_region_locations,message=FALSE, warning=FALSE}
+
+#eliminate regions with wrong MPI value
+
+regions_df %>% filter(!is.na(MPI)) %>%
+
+  #eliminate regions with wrong lat/lon
+
+  filter(lat>=-90 & lat<=90 & lon<=180 & lon>=-180) %>% ungroup() -> regions_df_clean
+
+
+
+
+
+minMPI = min(regions_df_clean$MPI)
+
+maxMPI = max(regions_df_clean$MPI)
+
+
+
+regions_df_clean$color = regions_df_clean$MPI * 100
+
+
+
+bins <- c(0,  20, 40, 60, 80, 100)
+
+
+
+pal <- colorBin("Greens", domain = regions_df_clean$color, bins = bins)
+
+
+
+leaflet(data=regions_df_clean) %>%
+
+  addTiles() %>%
+
+  addCircles(lat=regions_df_clean$lat, lng=regions_df_clean$lon, radius=12, color=~pal(regions_df_clean$color),
+
+             popup= paste("<strong>Location Name: </strong>", regions_df_clean$LocationName,
+
+                          "<br><br><strong>ISO: </strong>", regions_df_clean$ISO,
+
+                          "<br><strong>Country: </strong>", regions_df_clean$country,
+
+                          "<br><strong>Region: </strong>", regions_df_clean$region,
+
+                          "<br><strong>World Region: </strong>", regions_df_clean$region,
+
+                          "<br><strong>Multidimensional Poverty Index (MPI): </strong>", regions_df_clean$MPI,
+
+                          "<br><strong>Geolocation: </strong>", regions_df_clean$geo
+
+             )) %>%
+
+    addLegend("topright", pal = pal, 
+
+            values = c(minMPI, maxMPI),
+
+            title = "MPI",
+
+            labFormat = labelFormat(suffix = "%"),
+
+            opacity = 0.6
+
+            )
+
+```  
+
+
+
+
+
+
+
+Only **`r nrow(regions_df_clean)`** entries had a valid MPI, latitude or longitude. For each region with
+
+valid data, one circle is shown on the map at the location resulted from lat/long in the data.
+
+
+
+**Important note**: by clicking on the circles on the map one can observe that
+
+<font color="red"><b>there are multiple anomalies</b></font>. 
+
+Many locations are wrong or details are not matching with location. It appears that there are multiple regions with 
+
+low MPI in US, but the details belongs to South-America. As well, Chad appeard all around the World, a region
+
+belonging to Liberia appears in Mongolia etc. The geolocation data associated with regions contains multiple 
+
+incorrect values.
+
+
+
+
+
+## Where are living the poorest
+
+
+
+Looking for areas with larger Multidimensional Poverty Index value (that means most impoverished, from multiple
+
+factors, regions), we can identify several zones in **Sub-Saharian Africa**, most of **Madagascar**, **Yemen**, **Afghanistan**, **East-Timor**, **Haiti**. 
+
+These are also zones with generaly low GDP. We will use also data from different sources to validate these
+
+results.
+
+
+
+```{r fig.width=10, fig.height=10, mpi_regions_countries_regions}
+
+
+
+regions_df %>% group_by(country) %>% summarise(nr = mean(MPI))  %>% ungroup() %>% top_n(20,nr) %>%
+
+  ggplot(aes(x = reorder(country,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="lightblue", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(x ="Country", y = "MPI (average value)", title="MPI per country", subtitle="Averaged values") -> d1
+
+regions_df %>% group_by(region) %>% summarise(nr = mean(MPI))  %>% ungroup() %>% top_n(20,nr) %>%
+
+  ggplot(aes(x = reorder(region,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="gold", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(x ="Region", y = "MPI (average value)", title="MPI per region", subtitle="Averaged values") -> d2
+
+regions_df %>% filter(!is.na(MPI)) %>% group_by(world_region) %>% summarise(nr = mean(MPI))  %>% ungroup() %>% 
+
+  ggplot(aes(x = reorder(world_region,nr), y = nr)) +
+
+  geom_bar(stat="identity", fill="tomato", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(x ="Region", y = "MPI (average value)", title="MPI per World region", subtitle="Averaged values") -> d3
+
+grid.arrange(d1, d2, d3, ncol=1)
+
+```
+
+
+
+
+
+
+
+The most impoverished countries are **Chad**, **South-Sudan**, **Burkina-Faso**, **Niger** and **Ethiopia**, with averaged values of MPI
+
+above **0.55**.  
+
+
+
+The poorest regios are **Lac**, **Wadi Fira**, **Sila**, **Kanem**, **Sahel** - with averaged values of MPI between above
+
+and around **0.7**.
+
+
+
+As per World regions, the `Sub-Saharan Africa` is the poorest World region, with averaged values of MPI under
+
+**0.35**, followed by `South-Asia` with **0.22** and `East Asia and the Pacific` with **0.14**.
+
+
+
+Let's look now to the boxplot density for MPI, grouped by countries.
+
+
+
+```{r fig.width=10, fig.height=6, mpi_regions_country_boxplot}
+
+
+
+regions_df %>% group_by(country) %>% summarise(nr = mean(MPI))  %>% top_n(20,nr) %>% ungroup() -> top20Countries
+
+
+
+regions_df %>% filter(country %in% top20Countries$country) %>% ungroup() %>%
+
+
+
+ggplot(aes(x=reorder(country,MPI), y= MPI,  col=country)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="Country", y="MPI", col="Country",
+
+                                   title="Boxplot distribution of MPI",
+
+                                   subtitle="Grouped by country (top 20)")
+
+
+
+```
+
+
+
+
+
+The countries from **Sub-Saharan Africa** makes the majority of the top 20 in terms of largest average MPI. They also 
+
+have a large variation of MPI values. **Chad**, **Ethiopia**, **Gambia**, **South-Sudan** and **Guinea-Bissau** show the largest 
+
+variation. **Mali**, **Timor-Leste** and **Democratic Republic of the Congo** have smallest spread of MPI values.
+
+
+
+Let's look now to the boxplot density for MPI, grouped by World regions.
+
+
+
+```{r fig.width=10, fig.height=3, mpi_regions_world_regions_boxplot}
+
+regions_df %>% filter(!is.na(world_region)) %>% filter(!is.na(MPI)) %>%
+
+ggplot(aes(x=reorder(world_region,MPI), y= MPI,  col=world_region)) + 
+
+  geom_boxplot() + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="World Region", y="MPI", col="World Region",
+
+                                   title="Boxplot distribution of MPI",
+
+                                   subtitle="Grouped by World Regions")
+
+
+
+```
+
+
+
+
+
+**Sub-Saharan Africa** is not only the region with the largest average value of MPI but also with the largest variation
+
+of MPI, in both directions. **Arab States** and **South-East Asia** have as well a large variation of MPI values, with many
+
+outliers. **Europe and Central Asia** has the smallest MPI average and also the smallest variation of MPI values.
+
+
+
+
+
+#**GDP per capita (and more) as povery indicator**
+
+
+
+Let's represent from  **UN Data** the **GDP per capita** for Kiva countries. The value of GDP per capita is not an absolute
+
+indicator of poverty, since we already know that poverty depends on multiple factors and GDP is an averaged value. 
+
+In the same time, if the GDP per capita is small, this might be a good predictor for poverty, in conjunction with
+
+other factors, like GDP growth rate, percent of agriculture in the GDP, unemployment rate, life expectancy at birth, 
+
+infant mortality, access to medical assistance, access to water or sanitation facilities.
+
+We will include some of these indicators in the details for each country
+
+(**hover over the countries to see the details for each country**).
+
+
+
+```{r fig.width=9, fig.height=7, plotly_undata_kiva_countries, warnings=FALSE}
+
+undata_kiva_country_df$country_lc = tolower(undata_kiva_country_df$country)
+
+# light grey boundaries
+
+l <- list(color = toRGB("grey"), width = 0.5)
+
+
+
+undata_kiva_country_df$hover <- with(undata_kiva_country_df, 
+
+        paste(country, '<br>', "GDP", `GDP: Gross domestic product (million current US$)`, "<br>",
+
+          "GDP growth rate (annual %, const. 2005 prices)", `GDP growth rate (annual %, const. 2005 prices)`, "<br>",
+
+          "Economy: Agriculture (% of GVA)", `Economy: Agriculture (% of GVA)`,"<br>",
+
+          "Unemployment (% of labour force)", `Unemployment (% of labour force)`,"<br>",
+
+          "Life expectancy at birth (females/males, years)", `Life expectancy at birth (females/males, years)`,"<br>",
+
+          "Infant mortality rate (per 1000 live births)", `Infant mortality rate (per 1000 live births`,"<br>",
+
+          "Pop. using improved drinking water (urban/rural, %)", `Pop. using improved drinking water (urban/rural, %)`,"<br>",
+
+          "Pop. using improved sanitation facilities (urban/rural, %)", `Pop. using improved sanitation facilities (urban/rural, %)`
+
+          ))
+
+# specify map projection/options
+
+g <- list(
+
+  showframe = TRUE,
+
+  showcoastlines = TRUE,
+
+  projection = list(type = 'Mercator')
+
+)
+
+
+
+plot_geo(undata_kiva_country_df, locationmode = 'country names') %>%
+
+  add_trace(
+
+    z = ~`GDP per capita (current US$)`, color = ~`GDP per capita (current US$)`, colors = 'Spectral',
+
+    text = ~hover, locations=~country_lc, marker = list(line = l)
+
+  ) %>%
+
+  colorbar(title = 'GDP per capita\n (current US$)', tickprefix = '$') %>%
+
+  layout(
+
+    title = 'Global GDP per capita (current US$)<br>Source:<a href="https://www.kaggle.com/sudalairajkumar/undata-country-profiles">UN Data Country Statistics</a>',
+
+    geo = g
+
+  )
+
+```
+
+
+
+US appears as a very large outlier for the GDP per capita. As well, Chile or China are *regional* outliers.
+
+
+
+We see that the countries with large values of MPI between Kiva borrowers countries have as well a large weight of
+
+Agriculture in the GDP, have lower life expectancy, lower primary education enrollment, lower access to water and sanitation.
+
+Let's represent GDP per capita for Kiva countries, grouped by (World) Region, to highlight the differences at World Region level.
+
+
+
+```{r fig.width=10, fig.height=6, undata_regions_world_regions_boxplot}
+
+undata_kiva_country_df %>% filter(!is.na(Region)) %>% 
+
+ggplot(aes(x=reorder(Region,`GDP per capita (current US$)`), y= `GDP per capita (current US$)`,  col=Region)) + 
+
+  geom_boxplot() + theme(legend.position="none") + guides(col=FALSE) +
+
+  theme_bw() + coord_flip() + labs(x="World Region", y="GDP per capita (current US$)", col="World Region",
+
+                                   title="Boxplot distribution of GDP per capita (current US$)",
+
+                                   subtitle="Grouped by World Regions")
+
+
+
+```
+
+
+
+We can observe that there are large variations of GDP per capita in Central America, Caribbean and Western Asia. The only country
+
+accounting for the very large value in North America region is US.
+
+
+
+Let's represent now the `GDP per capita` for the top 20 and the botton 20 countries.
+
+
+
+
+
+```{r fig.width=12, fig.height=5, undata_kiva_country_indicators}
+
+undata_kiva_country_df %>%  select(country,`GDP per capita (current US$)`)  %>% 
+
+  top_n(20,`GDP per capita (current US$)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(country,`GDP per capita (current US$)`), y = `GDP per capita (current US$)`)) +
+
+  geom_bar(stat="identity", fill="gold", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="Top 20 GDP per capita (current US$)", x ="Country", y = "GDP per capita (current US$)") -> d1
+
+undata_kiva_country_df %>%  select(country,`GDP per capita (current US$)`)  %>% 
+
+  top_n(-20,`GDP per capita (current US$)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(country,`GDP per capita (current US$)`), y = `GDP per capita (current US$)`)) +
+
+  geom_bar(stat="identity", fill="magenta", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 10)  +
+
+  labs(title="Bottom 20 GDP per capita (current US$)", x ="Country", y = "GDP per capita (current US$)") -> d2
+
+grid.arrange(d1, d2, ncol=2)
+
+```
+
+
+
+Let's represent other indicators for the countries in `Bottom 20`. First, we select several other dimmensions
+
+for the countries in `Bottom 20`. These dimmensions are: `Economy: Agriculture (% of GVA)`,`Unemployment (% of labour force)`,
+
+`Life expectancy at birth (females/males, years)`, `Pop. using improved drinking water (urban/rural, %)`,
+
+`Pop. using improved sanitation facilities (urban/rural, %)`. We separate the values for Rural/Urban and Female/Male 
+
+in two variables (one for each area or gender, respectivelly).
+
+
+
+```{r undata_kiva_preparation, warning=FALSE}
+
+undata_kiva_country_df %>% filter(`GDP per capita (current US$)`>0) %>% 
+
+  select(country, `GDP per capita (current US$)`, `Economy: Agriculture (% of GVA)`,`Unemployment (% of labour force)`,
+
+         `Life expectancy at birth (females/males, years)`, 
+
+         `Pop. using improved drinking water (urban/rural, %)`,`Pop. using improved sanitation facilities (urban/rural, %)`) %>%  ungroup() -> top20countries
+
+
+
+top20countries$lebf <- 
+
+  sapply(strsplit(top20countries$`Life expectancy at birth (females/males, years)`, "/"), "[", 1)
+
+top20countries$lebm <- 
+
+  sapply(strsplit(top20countries$`Life expectancy at birth (females/males, years)`, "/"), "[", 2)
+
+top20countries$idwu <- 
+
+  sapply(strsplit(top20countries$`Pop. using improved drinking water (urban/rural, %)`, "/"), "[", 1)
+
+top20countries$idwr <- 
+
+  sapply(strsplit(top20countries$`Pop. using improved drinking water (urban/rural, %)`, "/"), "[", 2)
+
+
+
+t20=as.data.frame(cbind(top20countries[,c(1,2,3,4,7,8,9,10,11)]))
+
+t20$`Economy: Agriculture (% of GVA)` <- as.numeric(t20$`Economy: Agriculture (% of GVA)`)
+
+t20$`Unemployment (% of labour force)` <- as.numeric(t20$`Unemployment (% of labour force)`)
+
+t20$lebf <- as.numeric(t20$lebf)
+
+t20$lebm <- as.numeric(t20$lebm)
+
+t20$idwu <- as.numeric(t20$idwu)
+
+t20$idwr <- as.numeric(t20$idwr)
+
+
+
+
+
+
+
+colnames(t20) <- c("Country","GDP per capita (current US$)", "Economy: Agriculture (% of GVA)", "Unemployment (% of labour force)", 
+
+                   "Pop. using improved sanitation facilities (%)",
+
+                   "Life expectancy at birth (female)", "Life expectancy at birth (male)",
+
+                   "Pop. using improved drinking water (urban)", "Pop. using improved drinking water (rural)")
+
+
+
+```
+
+
+
+And now let's represent these, `top 20` for the percent represented by Agriculture in the economy and `bottom 20`
+
+for the rest of variables.
+
+
+
+
+
+```{r fig.width=12,fig.height=12, undata_kiva_country_indicators_2}
+
+t20 %>%  select(Country,`Economy: Agriculture (% of GVA)`)  %>% 
+
+  top_n(20,`Economy: Agriculture (% of GVA)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(Country,`Economy: Agriculture (% of GVA)`), y = `Economy: Agriculture (% of GVA)`)) +
+
+  geom_bar(stat="identity", fill="green", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 9)  +
+
+  labs(title="Top 20 Economy: Agriculture (% of GVA)", x ="Country", y = "Economy: Agriculture (% of GVA)") -> d1
+
+  
+
+t20 %>%  filter(`Pop. using improved sanitation facilities (%)` > 0) %>% select(Country,`Pop. using improved sanitation facilities (%)`)  %>% 
+
+  top_n(-20,`Pop. using improved sanitation facilities (%)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(Country,`Pop. using improved sanitation facilities (%)`), y = `Pop. using improved sanitation facilities (%)`)) +
+
+  geom_bar(stat="identity", fill="gold", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 9)  +
+
+  labs(title="Bottom 20 Pop. using improved sanitation facilities (%)", x ="Country", y = "Pop. using improved sanitation facilities (%)") -> d2
+
+
+
+t20 %>%  filter(`Pop. using improved drinking water (urban)` > 0) %>% select(Country,`Pop. using improved drinking water (urban)`)  %>% 
+
+  top_n(-20,`Pop. using improved drinking water (urban)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(Country,`Pop. using improved drinking water (urban)`), y = `Pop. using improved drinking water (urban)`)) +
+
+  geom_bar(stat="identity", fill="lightgrey", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 9)  +
+
+  labs(title="Bottom 20 Pop. using improved drinking water (urban)", x ="Country", y = "Pop. using improved drinking water (urban)") -> d3
+
+
+
+t20 %>%  filter(`Pop. using improved drinking water (rural)` > 0) %>% select(Country,`Pop. using improved drinking water (rural)`)  %>% 
+
+  top_n(-20,`Pop. using improved drinking water (rural)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(Country,`Pop. using improved drinking water (rural)`), y = `Pop. using improved drinking water (rural)`)) +
+
+  geom_bar(stat="identity", fill="grey", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 9)  +
+
+  labs(title="Bottom 20 Pop. using improved drinking water (rural)", x ="Country", y = "Pop. using improved drinking water (rural)") -> d4
+
+
+
+t20 %>%  filter(`Life expectancy at birth (female)` > 0) %>% select(Country,`Life expectancy at birth (female)`)  %>% 
+
+  top_n(-20,`Life expectancy at birth (female)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(Country,`Life expectancy at birth (female)`), y = `Life expectancy at birth (female)`)) +
+
+  geom_bar(stat="identity", fill="pink", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 9)  +
+
+  labs(title="Bottom 20 Life expectancy at birth (female)", x ="Country", y = "Life expectancy at birth (female)") -> d5
+
+
+
+t20 %>%  filter(`Life expectancy at birth (male)` > 0) %>% select(Country,`Life expectancy at birth (male)`)  %>% 
+
+  top_n(-20,`Life expectancy at birth (male)`) %>% ungroup() %>%
+
+  ggplot(aes(x = reorder(Country,`Life expectancy at birth (male)`), y = `Life expectancy at birth (male)`)) +
+
+  geom_bar(stat="identity", fill="lightblue", colour="black") +
+
+  coord_flip() + theme_bw(base_size = 9)  +
+
+  labs(title="Bottom 20 Life expectancy at birth (male)", x ="Country", y = "Life expectancy at birth (male)") -> d6
+
+
+
+  grid.arrange(d1,d2,d3, d4,d5,d6, ncol=2)
+
+```
+
+
+
+Liberia, Somalia, Siera Leone have all over 50% of the Economy represented by Agriculture. Improved sanitation facilities indicator does
+
+not look very relevant for poverty, since in bottom 20 we see also `rich` countries, like Chile, Turkey or Colombia.
+
+Improved water conditions are less than 10% in rural for the `bottom 10` countries and less than 30% in urban for the `bottom 10` countries.
+
+Siera Leone is the worst country for Life expectancy at birth, with around 50 years for both females and males.
+
+
+
+
+
+Let's compare, for some of the countries with worst `GDP per capita` the few other indicators, on the same graph. We will use for this a radarchart (Spider-Web) type graph.
+
+We initialize first the data for `bottom 12` - countries with smallest GDP per capita.
+
+
+
+```{r compare_countries_indicators}
+
+
+
+
+
+
+
+undata_kiva_country_df %>% filter(`GDP per capita (current US$)`>0) %>% top_n(-12,`GDP per capita (current US$)`) %>% 
+
+  select(country, `GDP per capita (current US$)`, `Economy: Agriculture (% of GVA)`,`Unemployment (% of labour force)`,
+
+         `Life expectancy at birth (females/males, years)`, 
+
+         `Pop. using improved drinking water (urban/rural, %)`,`Pop. using improved sanitation facilities (urban/rural, %)`) %>%  ungroup() -> top5countries
+
+
+
+
+
+top5countries$lebf <- 
+
+  sapply(strsplit(top5countries$`Life expectancy at birth (females/males, years)`, "/"), "[", 1)
+
+top5countries$lebm <- 
+
+  sapply(strsplit(top5countries$`Life expectancy at birth (females/males, years)`, "/"), "[", 2)
+
+top5countries$idwu <- 
+
+  sapply(strsplit(top5countries$`Pop. using improved drinking water (urban/rural, %)`, "/"), "[", 1)
+
+top5countries$idwr <- 
+
+  sapply(strsplit(top5countries$`Pop. using improved drinking water (urban/rural, %)`, "/"), "[", 2)
+
+
+
+t5=as.data.frame(cbind(top5countries[,c(2,3,4,7,8,9,10,11)]))
+
+t5$`Economy: Agriculture (% of GVA)` <- as.numeric(t5$`Economy: Agriculture (% of GVA)`)
+
+t5$`Unemployment (% of labour force)` <- as.numeric(t5$`Unemployment (% of labour force)`)
+
+t5$lebf <- as.numeric(t5$lebf)
+
+t5$lebm <- as.numeric(t5$lebm)
+
+t5$idwu <- as.numeric(t5$idwu)
+
+t5$idwr <- as.numeric(t5$idwr)
+
+t5$`Economy: Agriculture (% of GVA)` = 100 - t5$`Economy: Agriculture (% of GVA)`
+
+t5$`Unemployment (% of labour force)` = 100 - t5$`Unemployment (% of labour force)`
+
+
+
+
+
+colnames(t5) <- c("GDP per capita", "1 - Agriculture %", "1 - Unemployment %", 
+
+                   "Improved sanitation %",
+
+                   "Life expct. female", "Life expct. male",
+
+                   "Impr. drinking water urban %", "Impr. drinking water rural %")
+
+rownames(t5) <- top5countries$country
+
+
+
+rmin <- apply(t5,2,min)
+
+rmax <- apply(t5,2,max)
+
+
+
+#t5 <- rbind(rmax, rmin, t5)
+
+
+
+colors_border=c( "tomato", "blue", "gold", "green", "magenta", 
+
+                 "yellow", "grey", "lightblue", "brown", "red", "lightgreen", "cyan" )
+
+
+
+```
+
+
+
+Let's represent the radarcharts (Spider-Web) graphs. 
+
+
+
+```{r fig.width=10, fig.height=10,compare_countries_indicators_t12}
+
+par(mfrow=c(4,3))
+
+par(mar=c(1,1,1,1))
+
+for(i in 1:nrow(t5)){
+
+  colorValue<-(col2rgb(as.character(colors_border[i]))%>% as.integer())/255
+
+  radarchart(rbind(rmax,rmin,t5[i,]),
+
+     axistype=2 , 
+
+     pcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 1),
+
+     pfcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 0.5),
+
+     plwd=1 , plty=1,cglcol="grey", cglty=1, axislabcol="grey", cglwd=0.5,vlcex=0.7, 
+
+     title=rownames(t5[i,]))
+
+}
+
+
+
+```
+
+
+
+
+
+We represented on the same graph the `GDP per capita (current US$)`, `Economy: Agriculture (% of GVA)`,
+
+`Unemployment (% of labour force)`,`Life expectancy at birth (females/males, years)`,
+
+`Pop. using improved drinking water (urban/rural, %)`,`Pop. using improved sanitation facilities (urban/rural, %)`. 
+
+We separated the values for Rural/Urban and Female/Male, we replaced  `Economy: Agriculture (% of GVA)`,
+
+`Unemployment (% of labour force)` with
+
+the values substracted from 1 (since for these two, the larger the value, the worst) and we represented the values relative to
+
+the minimum and maximum value for each dimmension. The smaller the area of the resulting shapes, the
+
+more exposed will be a country to poverty. With this metric, we can say that `Somalia` is the poorest, followed by
+
+`Liberia`. Here were selected 12 countries with smallest `GDP per capita`, showing on juxtaposed graphs with the same min-max limits
+
+the values for those countries. We could highlight in this way the various dimmensions of the poverty, highlighting the factors
+
+that contribute, with different weights in each of those countries, to the perpetuation of the poverty. Addressing such basic needs
+
+by use of rightly targeted credits by Kiva can help to relief the poor people from extreme poverty.
+
+
+
+
+
+#**Conclusions**
+
+
+
+Majority of loans are with female-only borrowers (many of them with multiple borrowers), then, on second place, 
+
+the loans with male-only borrowers. Majority of loans have monthly repayments. Bullet repayments are mostly for agriculture.
+
+
+
+We could observe that the countries with large values of `MPI` show not only a small value of `GDP per capita` but also
+
+a large weight of` Agriculture in the GDP`, have `low life expectancy at birth`, `poor medical services` and 
+
+`lower access to water and sanitation services`.  
+
+
+
+Poverty is not only about GDP per capita,  is about a multitude (a combination) of factors and support for Kiva borrowers can 
+
+and should address some of these factors to ensure relief from poverty. 
+
+
+
+
+
+#**Feedback requested**
+
+
+
+Thank you for reading this Kernel. I will appreciate your **comments** and **suggestions**. And, of course, if you like it, 
+
+please also **upvote it**.
+
+
+
+#**References**
+
+
+
+[1] Kiva, https://www.kaggle.com/kiva  
+
+[2] Data Science for Good: Kiva Crowdfunding, Kaggle Dataset, https://www.kaggle.com/kiva/data-science-for-good-kiva-crowdfunding   
+
+[3] UN Data country profiles, Kaggle Dataset, https://www.kaggle.com/sudalairajkumar/undata-country-profiles  
+
+[4] Multidimensional poverty index (MPI), http://hdr.undp.org/en/content/multidimensional-poverty-index-mpi  
+
+[5] Multidimensional poverty index, Wikipedia, https://en.wikipedia.org/wiki/Multidimensional_Poverty_Index  
+
+[6] Kiva: Loans that change lives, https://theglobalheroes.wordpress.com/2012/11/01/kiva-loans-that-change-lives/  
+
+[7] Leaflet maps in R, https://rstudio.github.io/leaflet/  
+
+[8] Choropleth maps in R, https://plot.ly/r/choropleth-maps/
